@@ -23,7 +23,7 @@ const char *ParaHtml = R"====(
     .Bparametres { border: inset 10px azure; }
     .Bgeneraux { border: inset 4px azure; }
     #BoutonsBas { text-align:center; }
-    #ligneFixe, .ligneTemperature, #ligneExt, #ligneEnphaseUser, #ligneEnphasePwd, #ligneEnphaseSerial,
+    #ligneFixe, .ligneTemperature, #ligneExt,#ligneExtIPauto, #ligneEnphaseUser, #ligneEnphasePwd, #ligneEnphaseSerial,
     #infoIP, #ligneTopicP, #ligneTopicT { display:none; }
     .Zone, .generaux { width:100%; border:1px solid grey; border-radius:10px; margin-top:10px;
                        background-color:rgba(30,30,30,0.3); }
@@ -241,8 +241,16 @@ const char *ParaHtml = R"====(
           <label for="PTemp">Capteur(s) de température</label>
           <select id="PTemp" onclick="checkDisabled();">
             <option value="0" selected>Pas de capteur</option>
+            <option value="10">DS18B20 gpio 4</option>
+            <option value="5">DS18B20 gpio 5</option>
             <option value="1">DS18B20 gpio 13</option>
+            <option value="11">DS18B20 gpio 16</option>
+            <option value="12">DS18B20 gpio 17</option>
+            <option value="6">DS18B20 gpio 18</option>
+            <option value="7">DS18B20 gpio 19</option>
             <option value="4">DS18B20 gpio 21</option>
+            <option value="8">DS18B20 gpio 22</option>
+            <option value="9">DS18B20 gpio 23</option>
             <option value="2">DS18B20 gpio 27</option>
             <option value="3">DS18B20 gpio 33</option>
           </select>
@@ -360,7 +368,10 @@ const char *ParaHtml = R"====(
           <label for="RMSextIP">Adresse IP <span id="labExtIp"></span> externe :</label>
           <input type="text" id="RMSextIP" name="RMSextIP" autocomplete="on">
         </div>
-
+        <div class="ligne" id="ligneExtIPauto">
+          <label for="RMSextIPauto">Adresse IP auto par résolution mDNS :</label>
+          <input type="checkbox" id="RMSextIPauto" name="RMSextIPauto" style="width:25px;" >
+        </div>
         <div class="ligne" id="ligneEnphaseUser">
           <label for="EnphaseUser">Enphase Envoy-S metered User :
             <span class="fsize10"><br>Pour firmware Envoy-S V7 seulement</span>

@@ -109,6 +109,7 @@ function SetParaFixe() {
     GID("ModeW").value = F.ModeReseau;
     GID("sources").value = F.Source;
     GID("RMSextIP").value = int2ip(F.RMSextIP);
+    GID("RMSextIPauto").checked = F.RMSextIPauto == 1;
     GID("EnphaseUser").value = F.EnphaseUser;
     GID("EnphasePwd").value = F.EnphasePwd;
     GID("EnphaseSerial").value = F.EnphaseSerial;
@@ -194,6 +195,7 @@ function SendValues() {
     F.subMQTT = 0; F.WifiSleep = 1;
   }
   F.RMSextIP = ip2int(GID("RMSextIP").value);
+  F.RMSextIPauto = GID("RMSextIPauto").checked ? 1 : 0;
   F.Gateway = ip2int(GID("gateway").value);
   F.masque = ip2int(GID("masque").value);
   F.dns = ip2int(GID("dns").value);
@@ -492,6 +494,7 @@ function AdaptationSource() {
     // Visibilité de la ligne d'IP externe/Référence
     const isExternalSource = ['Ext', 'Enphase', 'SmartG', 'HomeW', 'ShellyEm', 'ShellyPro'].includes(F.Source);
     GID('ligneExt').style.display = isExternalSource ? "table-row" : "none";
+    GID('ligneExtIPauto').style.display = F.Source === 'Enphase' ? "table-row" : "none";
 
     // Visibilité des options d'authentification/série Enphase/Shelly
     GID('ligneEnphaseUser').style.display = (F.Source === 'Enphase') ? "table-row" : "none";

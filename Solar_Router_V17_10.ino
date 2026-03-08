@@ -1,4 +1,4 @@
-#define Version "17.07"
+#define Version "17.10"
 #define HOSTNAME "RMS-ESP32-"
 #define CLE_Rom_Init 912567899  //Valeur pour tester si ROM vierge ou pas. Un changement de valeur remet à zéro toutes les données. / Value to test whether blank ROM or not.
 
@@ -269,6 +269,13 @@
     Correction bug durée ESPON
     Changement de fonte dans LCD.ino
     Correction  sur sortie MQTT en triphasé.
+  - Version 17.08
+    Correction bugs envoi Triphasé et Enphase par MQTT 
+  - Version 17.09
+    Choix recherche adresse IP par résolution mDNS de http://envoy.local pour les sources Enphase. 
+  - Version 17.10
+    Correction bug state_class non initialisé sur envoi MQTT. 
+    Rajout de GPIOs pour connecter une sonde de température
   
   Les détails sont disponibles sur / Details are available here:
   https://f1atb.fr  Section Domotique / Home Automation
@@ -631,6 +638,7 @@ int LTARFbin = 0;  //Code binaire  des tarifs
 
 //Paramètres pour Source Externe
 int8_t RMSextIdx = 0;
+bool RMSextIPauto =true;
 
 //Actions
 Action LesActions[LES_ACTIONS_LENGTH];  //Liste des actions
@@ -714,7 +722,7 @@ unsigned int Serial2V = 0;  //Vitesse en bauds
 
 //Température Capteur DS18B20
 byte pTemp = 0;
-byte pinTemp[] = { 0, 13, 27, 33, 21 };
+byte pinTemp[] = { 0, 13, 27, 33, 21, 5, 18, 19, 22, 23, 4, 16, 17 };
 OneWire oneWire;  //Numero de pin sera affecté  au debut du setup
 DallasTemperature ds18b20(&oneWire);
 float temperature[4];  // 4 canaux max de températurre

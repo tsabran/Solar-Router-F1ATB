@@ -243,7 +243,7 @@ void sendMQTTDiscoveryMsg_global() {
   if (Source == "UxIx3") {
     DeviceToDiscover("Tension_M1", "Tension p1", "V", "voltage", "2");
     DeviceToDiscover("Intensite_M1", "Intensité p1", "A", "current", "2");
-    DeviceToDiscover("Tension_M2", "Tension p1", "V", "voltage", "2");
+    DeviceToDiscover("Tension_M2", "Tension p2", "V", "voltage", "2");
     DeviceToDiscover("Intensite_M2", "Intensité p2", "A", "current", "2");
     DeviceToDiscover("Tension_M3", "Tension p3", "V", "voltage", "2");
     DeviceToDiscover("Intensite_M3", "Intensité p3", "A", "current", "2");
@@ -294,7 +294,7 @@ void DeviceToDiscover(String VarName, String TitleName, String Unit, String Clas
   char DiscoveryTopic[120];
   char UniqueID[50];
   char ValTpl[80];
-  char state_class[60];
+  char state_class[60]={0};
   snprintf(DiscoveryTopic, sizeof(DiscoveryTopic), "%s%s/%s_%s/%s", PrefixMQTT, SSR, MQTTdeviceName.c_str(), VarName.c_str(), "config");
   snprintf(UniqueID, sizeof(UniqueID), "%s_%s", MQTTdeviceName.c_str(), VarName.c_str());
   snprintf(ValTpl, sizeof(ValTpl), "{{ value_json.%s|default(0)|round(%s)}}", VarName.c_str(), Round.c_str()); // le compilateur estime 24 caractères par string
@@ -418,7 +418,7 @@ void SendDataToHomeAssistant() {
     len += snprintf(value + len, sizeof(value) - len, ",\"EASF01\":%ld, \"EASF02\":%ld, \"EASF03\":%ld, \"EASF04\":%ld, \"EASF05\":%ld, \"EASF06\":%ld,\"EASF07\":%ld, \"EASF08\":%ld, \"EASF09\":%ld, \"EASF10\":%ld", EASF01, EASF02, EASF03, EASF04, EASF05, EASF06, EASF07, EASF08, EASF09, EASF10);
   }
   if (Source == "Enphase") {
-    len += snprintf(value, sizeof(value), ",\"PactProd\":%d, \"PactConso_M\":%d", PactProd, PactConso_M);
+    len += snprintf(value + len, sizeof(value) - len, ",\"PactProd\":%d, \"PactConso_M\":%d", PactProd, PactConso_M);
   }
   if (Source == "UxIx3") {  //Modif Piamp 8/12/2025
     len += snprintf(value + len, sizeof(value) - len, ",\"Tension_M1\": %.1f, \"Intensite_M1\": %.1f,\"Tension_M2\": %.1f, \"Intensite_M2\": %.1f,\"Tension_M3\": %.1f, \"Intensite_M3\": %.1f, \"Frequence\":%.2f", Tension_M1, Intensite_M1, Tension_M2, Intensite_M2, Tension_M3, Intensite_M3, Frequence);

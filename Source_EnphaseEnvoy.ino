@@ -11,22 +11,23 @@ void Setup_Enphase() {
   //Résolution mDNS de http://envoy.local en adresse IP                                                                  //SR19
   //***************************************************                                                                  //SR19
 
-  const char* host = "envoy";                                                                      //SR19
-  IPAddress envoyIP;                                                                               //SR19
-  if (!MDNS.begin(hostname)) {                                                                     //Init mDNS                                                                              //SR19
-    TelnetPrintln("Erreur : impossible d'initialiser mDNS");                                       //SR19
-    return;                                                                                        //SR19
-  } else {                                                                                         //SR19
-    envoyIP = MDNS.queryHost(host, 2000);                                                          //avec timeout 2s                                                             //SR19
-  }                                                                                                //SR19
-  if (envoyIP.toString() != "0.0.0.0") {                                                           //SR19
-    StockMessage("IP Enphase : http://" + String(host) + ".local" + " -> " + envoyIP.toString());  //SR19
-    RMSextIP = ipToInt(envoyIP);                                                                   //IP -> uint32                                                                         //SR19
-  } else {                                                                                         //SR19
-    StockMessage("Échec! passerelle Enphase envoy déconnectée");                                   //SR19
-    return;                                                                                        //SR19
+  const char* host = "envoy";  //SR19
+  IPAddress envoyIP;
+  if (RMSextIPauto) {                                                                                //SR19
+    if (!MDNS.begin(hostname)) {                                                                     //Init mDNS                                                                              //SR19
+      TelnetPrintln("Erreur : impossible d'initialiser mDNS");                                       //SR19
+      return;                                                                                        //SR19
+    } else {                                                                                         //SR19
+      envoyIP = MDNS.queryHost(host, 2000);                                                          //avec timeout 2s                                                             //SR19
+    }                                                                                                //SR19
+    if (envoyIP.toString() != "0.0.0.0") {                                                           //SR19
+      StockMessage("IP Enphase : http://" + String(host) + ".local" + " -> " + envoyIP.toString());  //SR19
+      RMSextIP = ipToInt(envoyIP);                                                                   //IP -> uint32                                                                         //SR19
+    } else {                                                                                         //SR19
+      StockMessage("Échec! passerelle Enphase envoy déconnectée");                                   //SR19
+      return;                                                                                        //SR19
+    }
   }
-
   //Obtention Session ID
   //********************
   const char* server1Enphase = "enlighten.enphaseenergy.com";
@@ -34,7 +35,7 @@ void Setup_Enphase() {
   String adrEnphase = "https://" + Host + "/login/login.json";
   String requestBody = "user[email]=" + EnphaseUser + "&user[password]=" + urlEncode(EnphasePwd);
 
-  if (EnphaseUser != "" && EnphasePwd != "" && envoyIP.toString() != "0.0.0.0") {  // test envoyIP si perte de connexion //SR19
+  if (EnphaseUser != "" && EnphasePwd != "" && RMSextIP > 0) {  // test envoyIP si perte de connexion //SR19
     TelnetPrintln("Essai connexion  Enlighten server 1 pour obtention session_id!");
     clientSecu.setInsecure();  //skip verification
     if (!clientSecu.connect(server1Enphase, 443, 3000))
