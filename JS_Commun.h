@@ -17,7 +17,8 @@ const char *ParaCommunJS = R"====(
              F=JSON.parse(this.responseText);
              GH("nom_R",F.nomRouteur); //Commun à toutes les pages
              let V=parseInt(F.VersionStocke)/100;
-             GH("version",`${V.toFixed(2)} | Source : ${F.Source}`);
+             let versionAffichee = (F.VersionTexte && F.VersionTexte.length>0) ? F.VersionTexte : V.toFixed(2);
+             GH("version",`${versionAffichee} | Source : ${F.Source}`);
              document.title=`${F.nomRouteur} - ${document.title}`;
              SetParaFixe();
            }         

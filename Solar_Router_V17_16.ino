@@ -1,4 +1,8 @@
 #define Version "17.16"
+#ifndef VERSION_SUFFIX
+#define VERSION_SUFFIX ""
+#endif
+#define VersionFull Version VERSION_SUFFIX
 #define HOSTNAME "RMS-ESP32-"
 
 /*
@@ -945,7 +949,7 @@ void setup() {
   delay(500);
   Serial.println();
   StockMessage("Booting Routeur F1ATB");
-  Serial.println(Version);
+  Serial.println(VersionFull);
   //Watchdog initialisation
   esp_task_wdt_deinit();
   // Initialisation de la structure de configuration pour la WDT
@@ -1112,7 +1116,7 @@ void setup() {
     delay(500);
     bestWifi = Liste_WIFI();
     TelnetPrint("Version : ");
-    TelnetPrintln(Version);
+    TelnetPrintln(VersionFull);
     delay(200);
     LireSerial();
     // Configure WIFI

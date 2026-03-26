@@ -1,1 +1,2 @@
 -Wno-missing-field-initializers
+-DVERSION_SUFFIX=\"-custom\"

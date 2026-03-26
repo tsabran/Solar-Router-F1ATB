@@ -340,6 +340,7 @@ String SerializeConfiguration() {
   String V = Version;
   int VersionStocke = round(100 * V.toFloat());
   conf["VersionStocke"] = VersionStocke;
+  conf["VersionTexte"] = String(VersionFull);
   conf["ssid"] = ssid;
   conf["password"] = password;
   conf["dhcpOn"] = dhcpOn;

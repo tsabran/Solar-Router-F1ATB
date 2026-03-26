@@ -89,7 +89,7 @@ bool testMQTTconnected() {
       snprintf(mdl, sizeof(mdl), "%s%s", "ESP32 - ", ESP_ID);                                         // ID de l'entité pour HA
       String mf = "F1ATB - https://f1atb.fr";
       String hw = String(ESP.getChipModel()) + " rev." + String(ESP.getChipRevision());
-      String sw = Version;
+      String sw = VersionFull;
       snprintf(DEVICE, sizeof(DEVICE), "{\"ids\":\"%s\",\"name\":\"%s\",\"mdl\":\"%s\",\"mf\":\"%s\",\"hw\":\"%s\",\"sw\":\"%s\",\"cu\":\"%s\"}", ESP_ID, nomRouteur.c_str(), mdl, mf.c_str(), hw.c_str(), sw.c_str(), cu.c_str());
       PeriodeMQTTMillis = 500;
     } else {  // si utilisateur pas connecté au mqtt
