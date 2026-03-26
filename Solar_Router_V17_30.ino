@@ -1,6 +1,10 @@
 #define Version "17.30"  //
 #define HOSTNAME "RMS-ESP32-"
 
+#ifndef VERSION_SUFFIX
+#define VERSION_SUFFIX ""
+#endif
+#define VersionFull Version VERSION_SUFFIX
 
 
 /*
@@ -991,7 +995,7 @@ void setup() {
   delay(500);
   Serial.println();
   StockMessage("Booting Routeur F1ATB");
-  Serial.println(Version);
+  Serial.println(VersionFull);
 
   //Reset Reason
   Serial.println("\n--- ANALSE DU DERNIER BOOT ---");
@@ -1162,7 +1166,7 @@ print_reset_reason();
     delay(500);
     bestWifi = Liste_WIFI();
     TelnetPrint("Version : ");
-    TelnetPrintln(Version);
+    TelnetPrintln(VersionFull);
     delay(200);
     LireSerial();
     // Configure WIFI
