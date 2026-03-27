@@ -665,8 +665,15 @@ void handleParaCommunJS() {
 }
 void handleParaFixe() {  //Paramètres stockés en fichier
   File file = LittleFS.open("/parametres.json", "r");
-  server.send(200, "application/json", file.readString());
+  String json = file.readString();
   file.close();
+  // Override VersionTexte avec la valeur compile-time (non stockée)
+  JsonDocument doc;
+  deserializeJson(doc, json);
+  doc["VersionTexte"] = String(VersionFull);
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
 }
 void handleajaxRAZhisto() {
   RAZ_Histo_Conso();

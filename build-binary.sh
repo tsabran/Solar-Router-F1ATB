@@ -23,8 +23,20 @@ fi
 FQBN_DEFAULT="esp32:esp32:esp32:PartitionScheme=custom"
 FQBN="${FQBN:-$FQBN_DEFAULT}"
 OUT_DIR="${OUT_DIR:-$WORK_DIR/build}"
-ARCHIVE_DIR="${ARCHIVE_DIR:-$WORK_DIR/../releases}"
+ARCHIVE_DIR="${ARCHIVE_DIR:-$HOME/dev/Solar-Router-F1ATB-workspace/releases}"
 LOG_FILE="${LOG_FILE:-$WORK_DIR/build-binary.log}"
+VERSION_SUFFIX="${VERSION_SUFFIX:-localdev}"
+
+TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+# Append timestamp to VERSION_SUFFIX only if not already present, to avoid duplication on retries.
+if [[ "$VERSION_SUFFIX" == *local* && ! "$VERSION_SUFFIX" =~ [0-9]{8}-[0-9]{6} ]]; then
+  VERSION_SUFFIX="$VERSION_SUFFIX-$TIMESTAMP"
+fi
+# BIN_SUFFIX mirrors VERSION_SUFFIX and ensures a timestamp is always present in the archive filename.
+BIN_SUFFIX="$VERSION_SUFFIX"
+if [[ ! "$BIN_SUFFIX" =~ [0-9]{8}-[0-9]{6} ]]; then
+  BIN_SUFFIX="${BIN_SUFFIX}-${TIMESTAMP}"
+fi
 
 # Canonicalize paths (resolve .., symlinks when possible) for cleaner logs and outputs.
 canonpath() {
@@ -46,9 +58,9 @@ canonpath() {
   fi
 }
 
-OUT_DIR="$(canonpath "$OUT_DIR")"
-ARCHIVE_DIR="$(canonpath "$ARCHIVE_DIR")"
-LOG_FILE="$(canonpath "$LOG_FILE")"
+# OUT_DIR="$(canonpath "$OUT_DIR")"
+# ARCHIVE_DIR="$(canonpath "$ARCHIVE_DIR")"
+# LOG_FILE="$(canonpath "$LOG_FILE")"
 
 COLOR_ENABLED=0
 if [[ -n "${FORCE_COLOR:-}" ]]; then
@@ -104,6 +116,7 @@ run_step() {
   local start_ts end_ts elapsed
   start_ts="$(date +%s)"
   log START "${label}"
+  log INFO "+ $*"
   if "$@"; then
     end_ts="$(date +%s)"
     elapsed="$((end_ts - start_ts))"
@@ -139,6 +152,8 @@ Environment variables:
   OUT_DIR Output directory for binaries
   ARCHIVE_DIR Directory where timestamped .ino.bin copies are stored
   LOG_FILE Path to execution log file (default: ./build-binary.log)
+  BIN_SUFFIX Optional suffix inserted before .ino.bin in the archive filename (e.g. _dev)
+  VERSION_SUFFIX Optional string appended to Version in the firmware UI (e.g. -dev-20260327-143000)
   NO_COLOR Disable colored output
   FORCE_COLOR Force colored output
 EOF
@@ -196,6 +211,21 @@ log INFO "Build target: ${MAIN_INO} (FQBN: ${FQBN})"
 log INFO "Work directory: ${WORK_DIR}"
 log INFO "Staging strategy: compile from ${STAGE_DIR} so sketch folder matches ${SKETCH_NAME}.ino"
 log INFO "Outputs: build=${OUT_DIR} archive=${ARCHIVE_DIR}"
+[[ -n "$VERSION_SUFFIX" ]] && log INFO "Version suffix: ${VERSION_SUFFIX}"
+
+# Patch build_opt.h in the staging dir so VERSION_SUFFIX overrides any default.
+# This is more reliable than --build-property which does not override build_opt.h.
+BUILD_OPT="$STAGE_DIR/build_opt.h"
+if [[ -n "$VERSION_SUFFIX" ]]; then
+  if [[ -f "$BUILD_OPT" ]]; then
+    # Replace any existing VERSION_SUFFIX line
+    sed -i '' "s|-DVERSION_SUFFIX=\\\\\"[^\\\"]*\\\\\"|-DVERSION_SUFFIX=\\\\\"${VERSION_SUFFIX}\\\\\"|g" "$BUILD_OPT"
+    log INFO "Patched build_opt.h: VERSION_SUFFIX=${VERSION_SUFFIX}"
+  else
+    printf -- '-DVERSION_SUFFIX=\\"%s\\"\n' "$VERSION_SUFFIX" >> "$BUILD_OPT"
+    log INFO "Created build_opt.h with VERSION_SUFFIX=${VERSION_SUFFIX}"
+  fi
+fi
 
 run_step "arduino-cli compile" arduino-cli compile \
   --fqbn "$FQBN" \
@@ -208,8 +238,7 @@ if [[ ! -f "$BIN_FILE" ]]; then
   exit 1
 fi
 
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BIN_COPY_NAME="${MAIN_INO%.ino}_${TIMESTAMP}.ino.bin"
+BIN_COPY_NAME="${MAIN_INO%.ino}_${BIN_SUFFIX}.ino.bin"
 mkdir -p "$ARCHIVE_DIR"
 BIN_COPY_PATH="$ARCHIVE_DIR/$BIN_COPY_NAME"
 cp "$BIN_FILE" "$BIN_COPY_PATH"
