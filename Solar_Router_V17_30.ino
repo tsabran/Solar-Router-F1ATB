@@ -1,11 +1,11 @@
 #define Version "17.30"  //
 #define HOSTNAME "RMS-ESP32-"
 
-#ifndef VERSION_SUFFIX
-#define VERSION_SUFFIX ""
+#ifdef BUILD_TAG
+#define VersionFull Version " (" BUILD_TAG ")"
+#else
+#define VersionFull Version
 #endif
-#define VersionFull Version VERSION_SUFFIX
-
 
 /*
   PV Router / Routeur Photovoltaïque 

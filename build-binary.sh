@@ -25,15 +25,15 @@ FQBN="${FQBN:-$FQBN_DEFAULT}"
 OUT_DIR="${OUT_DIR:-$WORK_DIR/build}"
 ARCHIVE_DIR="${ARCHIVE_DIR:-$HOME/dev/Solar-Router-F1ATB-workspace/releases}"
 LOG_FILE="${LOG_FILE:-$WORK_DIR/build-binary.log}"
-VERSION_SUFFIX="${VERSION_SUFFIX:-localdev}"
+BUILD_TAG="${BUILD_TAG:-localdev}"
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-# Append timestamp to VERSION_SUFFIX only if not already present, to avoid duplication on retries.
-if [[ "$VERSION_SUFFIX" == *local* && ! "$VERSION_SUFFIX" =~ [0-9]{8}-[0-9]{6} ]]; then
-  VERSION_SUFFIX="$VERSION_SUFFIX-$TIMESTAMP"
+# Append timestamp to BUILD_TAG only if not already present, to avoid duplication on retries.
+if [[ "$BUILD_TAG" == *local* && ! "$BUILD_TAG" =~ [0-9]{8}-[0-9]{6} ]]; then
+  BUILD_TAG="$BUILD_TAG-$TIMESTAMP"
 fi
-# BIN_SUFFIX mirrors VERSION_SUFFIX and ensures a timestamp is always present in the archive filename.
-BIN_SUFFIX="$VERSION_SUFFIX"
+# BIN_SUFFIX mirrors BUILD_TAG and ensures a timestamp is always present in the archive filename.
+BIN_SUFFIX="$BUILD_TAG"
 if [[ ! "$BIN_SUFFIX" =~ [0-9]{8}-[0-9]{6} ]]; then
   BIN_SUFFIX="${BIN_SUFFIX}-${TIMESTAMP}"
 fi
@@ -153,7 +153,7 @@ Environment variables:
   ARCHIVE_DIR Directory where timestamped .ino.bin copies are stored
   LOG_FILE Path to execution log file (default: ./build-binary.log)
   BIN_SUFFIX Optional suffix inserted before .ino.bin in the archive filename (e.g. _dev)
-  VERSION_SUFFIX Optional string appended to Version in the firmware UI (e.g. -dev-20260327-143000)
+  BUILD_TAG Optional string appended to Version in the firmware UI (e.g. -dev-20260327-143000)
   NO_COLOR Disable colored output
   FORCE_COLOR Force colored output
 EOF
@@ -211,19 +211,19 @@ log INFO "Build target: ${MAIN_INO} (FQBN: ${FQBN})"
 log INFO "Work directory: ${WORK_DIR}"
 log INFO "Staging strategy: compile from ${STAGE_DIR} so sketch folder matches ${SKETCH_NAME}.ino"
 log INFO "Outputs: build=${OUT_DIR} archive=${ARCHIVE_DIR}"
-[[ -n "$VERSION_SUFFIX" ]] && log INFO "Version suffix: ${VERSION_SUFFIX}"
+[[ -n "$BUILD_TAG" ]] && log INFO "Build tag: ${BUILD_TAG}"
 
-# Patch build_opt.h in the staging dir so VERSION_SUFFIX overrides any default.
+# Patch build_opt.h in the staging dir so BUILD_TAG overrides any default.
 # This is more reliable than --build-property which does not override build_opt.h.
 BUILD_OPT="$STAGE_DIR/build_opt.h"
-if [[ -n "$VERSION_SUFFIX" ]]; then
+if [[ -n "$BUILD_TAG" ]]; then
   if [[ -f "$BUILD_OPT" ]]; then
-    # Replace any existing VERSION_SUFFIX line
-    sed -i '' "s|-DVERSION_SUFFIX=\\\\\"[^\\\"]*\\\\\"|-DVERSION_SUFFIX=\\\\\"${VERSION_SUFFIX}\\\\\"|g" "$BUILD_OPT"
-    log INFO "Patched build_opt.h: VERSION_SUFFIX=${VERSION_SUFFIX}"
+    # Replace any existing BUILD_TAG line
+    sed -i '' "s|-DBUILD_TAG=\\\\\"[^\\\"]*\\\\\"|-DBUILD_TAG=\\\\\"${BUILD_TAG}\\\\\"|g" "$BUILD_OPT"
+    log INFO "Patched build_opt.h: BUILD_TAG=${BUILD_TAG}"
   else
-    printf -- '-DVERSION_SUFFIX=\\"%s\\"\n' "$VERSION_SUFFIX" >> "$BUILD_OPT"
-    log INFO "Created build_opt.h with VERSION_SUFFIX=${VERSION_SUFFIX}"
+    printf -- '-DBUILD_TAG=\\"%s\\"\n' "$BUILD_TAG" >> "$BUILD_OPT"
+    log INFO "Created build_opt.h with BUILD_TAG=${BUILD_TAG}"
   fi
 fi
 

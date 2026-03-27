@@ -5,10 +5,10 @@
 #
 # Modes (combinable):
 #   --localdev     (default) Temp clone of the current branch with working-tree
-#                  changes applied on top. Merges branches. VERSION_SUFFIX=localdev.
+#                  changes applied on top. Merges branches. BUILD_TAG=localdev.
 #   --localrelease Fetch origin/main into local repo first (so the clone has it),
 #                  then temp clone starting from origin/main. Merges branches.
-#                  VERSION_SUFFIX=localrelease.
+#                  BUILD_TAG=localrelease.
 #
 # Both modes use a temporary clone and never touch any local branch or working tree.
 
@@ -38,10 +38,10 @@ while [ $# -gt 0 ]; do
             echo ""
             echo "Modes (combinable, --localdev is default):"
             echo "  --localdev      Current branch + working-tree changes, merge branches,"
-            echo "                  build (VERSION_SUFFIX=localdev)."
+            echo "                  build (BUILD_TAG=localdev)."
             echo "  --localrelease  Fetch origin/main locally first, then temp clone"
             echo "                  starting from origin/main, merge branches,"
-            echo "                  build (VERSION_SUFFIX=localrelease)."
+            echo "                  build (BUILD_TAG=localrelease)."
             echo ""
             echo "Config file: $INVOCATION_DIR/merge-branches.conf"
             echo ""
@@ -334,7 +334,7 @@ run_local_build() {
     echo ""
     echo -e "${YELLOW}Step $step: Building firmware binary ($mode)...${NC}"
 
-    if run_cmd env VERSION_SUFFIX="$mode" WORKDIR="$temp_clone" "$BUILD_SCRIPT"; then
+    if run_cmd env BUILD_TAG="$mode" WORKDIR="$temp_clone" "$BUILD_SCRIPT"; then
         echo -e "${GREEN}✓ Build complete ($mode)${NC}"
     else
         echo -e "${RED}✗ Build failed ($mode)${NC}"
