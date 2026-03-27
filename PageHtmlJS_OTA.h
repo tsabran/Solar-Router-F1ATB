@@ -41,41 +41,124 @@ const char *OtaHtml = R"====(
     </div>
     <form method="POST" action="#" enctype="multipart/form-data" id="upload_form">
       <input type="file" name="update" id="fichier">
-      <input class="bouton" type="submit" value="Mettre à jour">
+      <input class="bouton" id="submit_btn" type="submit" value="Mettre à jour">
     </form>
     <div id="prg">progression: 0%</div>
     <script>
           var BordsInverse=[".Bparametres",".Bota"];
           $('form').submit(function(e){
             e.preventDefault();
-            let form = $('#upload_form')[0];
-            let data = new FormData(form);
-            
+            let data = new FormData($('#upload_form')[0]);
+            $('#fichier, #submit_btn').prop('disabled', true);
             $.ajax({
               url: '/update',
               type: 'POST',
               data: data,
               contentType: false,
-              processData:false,
+              processData: false,
               xhr: function() {
-              let xhr = new window.XMLHttpRequest();
-              xhr.upload.addEventListener('progress', function(evt) {
-              if (evt.lengthComputable) {
-              let per = evt.loaded / evt.total;
-              $('#prg').html('progression: ' + Math.round(per*100) + '%');
-              }
-              }, false);
-              return xhr;
+                let xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function(evt) {
+                  if (evt.lengthComputable) {
+                    let pct = Math.round(evt.loaded / evt.total * 100);
+                    $('#prg').html(pct < 100
+                      ? 'Envoi: ' + pct + '%'
+                      : 'Envoi terminé, validation en cours...');
+                  }
+                }, false);
+                return xhr;
               },
-              success:function(d, s) {
-              console.log('succès!');
-              
-            },
-            error: function (a, b, c) {
-            }
+              success: function(response) {
+                if (response.trim() === 'OK') {
+                  $('#prg').html('✓ Mise à jour validée. Redémarrage en cours...');
+                  console.log('[OTA] Mise à jour validée par le serveur. Démarrage du polling...');
+                  startPolling();
+                } else {
+                  $('#prg').html('✗ Échec de la mise à jour: ' + response);
+                  console.error('[OTA] Échec:', response);
+                  $('#fichier, #submit_btn').prop('disabled', false);
+                }
+              },
+              error: function(xhr) {
+                if (xhr.status === 0) {
+                  // Connexion coupée: l'ESP32 a probablement redémarré avant d'envoyer la réponse
+                  $('#prg').html('Connexion interrompue, vérification du redémarrage...');
+                  console.warn('[OTA] Connexion interrompue (status 0) — redémarrage probable. Démarrage du polling...');
+                  startPolling();
+                } else {
+                  $('#prg').html('✗ Erreur HTTP ' + xhr.status);
+                  console.error('[OTA] Erreur HTTP:', xhr.status, xhr.statusText);
+                  $('#fichier, #submit_btn').prop('disabled', false);
+                }
+              }
+            });
           });
-        });
-        function Init(){
+
+          function startPolling() {
+            var baseUrl = window.location.origin;
+            var maxAttempts = 40; // 80 secondes max
+            var attempts = 0;
+            var dotCount = 0;
+            var t0 = Date.now();
+
+            console.log('[OTA] Polling démarré —', baseUrl);
+
+            var dotsTimer = setInterval(function() {
+              dotCount = (dotCount % 5) + 1;
+              $('#prg').html('Redémarrage en cours' + '.'.repeat(dotCount));
+            }, 500);
+
+            var pollTimer = setInterval(function() {
+              attempts++;
+              var elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+              if (attempts > maxAttempts) {
+                clearInterval(pollTimer);
+                clearInterval(dotsTimer);
+                console.error('[OTA] Timeout après ' + elapsed + 's — ESP32 non joignable');
+                $('#prg').html('⚠ Délai dépassé. <a href="/">Cliquez ici pour recharger manuellement.</a>');
+                return;
+              }
+              console.log('[OTA] Tentative ' + attempts + '/' + maxAttempts + ' (' + elapsed + 's)...');
+              fetch(baseUrl + '/', { cache: 'no-store' })
+                .then(function(resp) {
+                  if (resp.ok) {
+                    clearInterval(pollTimer);
+                    clearInterval(dotsTimer);
+                    console.log('[OTA] ESP32 joignable après ' + elapsed + 's — rechargement');
+                    $('#prg').html('✓ ESP32 redémarré ! Rechargement...');
+                    clearCachesAndReload(baseUrl + '/OTA');
+                  }
+                })
+                .catch(function(err) {
+                  console.log('[OTA] Tentative ' + attempts + ' — pas de réponse (' + (err.message || 'network error') + ')');
+                });
+            }, 2000);
+          }
+
+          function clearCachesAndReload(url) {
+            var target = url + '?v=' + Date.now();
+            if ('caches' in window) {
+              caches.keys().then(function(keys) {
+                console.log('[OTA] ' + keys.length + ' cache(s) à effacer : ' + JSON.stringify(keys));
+                return Promise.all(keys.map(function(k) {
+                  return caches.delete(k).then(function(ok) {
+                    console.log('[OTA] Cache "' + k + '" effacé : ' + ok);
+                  });
+                }));
+              }).then(function() {
+                console.log('[OTA] Tous les caches effacés. Redirection vers ' + target);
+              }).catch(function(err) {
+                console.warn('[OTA] Erreur lors de l\'effacement des caches :', err);
+              }).finally(function() {
+                window.location.href = target;
+              });
+            } else {
+              console.log('[OTA] API Cache non disponible. Redirection vers ' + target);
+              window.location.href = target;
+            }
+          }
+
+          function Init(){
           SetHautBas();
           LoadParaFixe();
           
