@@ -16,6 +16,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INVOCATION_DIR="$(pwd)"
+WORK_DIR="${WORKDIR:-$SCRIPT_DIR}"
+WORK_DIR_EXPLICIT=false
+[ -n "${WORKDIR:-}" ] && WORK_DIR_EXPLICIT=true
+PARENT_WORKSPACE_DIR=$HOME/dev/Solar-Router-F1ATB-workspace
 
 # --------------------------------------------------------------------------- #
 # Flag parsing  (flags must come before branch names)
@@ -27,13 +31,18 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --localdev)     BUILD_LOCALDEV=true;     shift ;;
         --localrelease) BUILD_LOCALRELEASE=true; shift ;;
+        --workdir)
+            WORK_DIR="$2"
+            WORK_DIR_EXPLICIT=true
+            shift 2
+            ;;
         --help|-h)
             echo "Local Build Script"
             echo ""
             echo "Builds firmware in a temporary clone. Never touches local branches."
             echo ""
             echo "Usage:"
-            echo "  $0 [--localdev] [--localrelease] [branch1 ...]"
+            echo "  $0 [--localdev] [--localrelease] [--workdir <path>] [branch1 ...]"
             echo "  $0                  (reads branches from merge-branches.conf)"
             echo ""
             echo "Modes (combinable, --localdev is default):"
@@ -42,8 +51,11 @@ while [ $# -gt 0 ]; do
             echo "  --localrelease  Fetch origin/main locally first, then temp clone"
             echo "                  starting from origin/main, merge branches,"
             echo "                  build (BUILD_TAG=localrelease)."
+            echo "  --workdir <path>  Override the working directory (git repo to use)."
+            echo "                    Defaults to the script directory, then falls back"
+            echo "                    to the invocation directory if no git repo is found."
             echo ""
-            echo "Config file: $INVOCATION_DIR/merge-branches.conf"
+            echo "Config file: $PARENT_WORKSPACE_DIR/merge-branches.conf"
             echo ""
             echo "Examples:"
             echo "  $0"
@@ -59,8 +71,20 @@ done
 # Default to localdev if no mode specified
 [ "$BUILD_LOCALDEV" = false ] && [ "$BUILD_LOCALRELEASE" = false ] && BUILD_LOCALDEV=true
 
-CONFIG_FILE="$INVOCATION_DIR/merge-branches.conf"
-BUILD_SCRIPT="$SCRIPT_DIR/build-binary.sh"
+# --------------------------------------------------------------------------- #
+# Resolve WORK_DIR (fallback to INVOCATION_DIR if default has no git repo)
+# --------------------------------------------------------------------------- #
+if [ "$WORK_DIR_EXPLICIT" = false ] && ! git -C "$WORK_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+    echo -e "${YELLOW}No git repo found in default location ($WORK_DIR), falling back to invocation directory ($INVOCATION_DIR)${NC}"
+    WORK_DIR="$INVOCATION_DIR"
+    if ! git -C "$WORK_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+        echo -e "${RED}Error: No git repo found in fallback location ($WORK_DIR) either. Use --workdir to specify one.${NC}"
+        exit 1
+    fi
+fi
+
+CONFIG_FILE="$PARENT_WORKSPACE_DIR/merge-branches.conf"
+BUILD_SCRIPT="$PARENT_WORKSPACE_DIR/build-binary.sh"
 BASE_AUTOMATION_BRANCH="custom-release-automation"
 WORK_RELEASE_BRANCH="custom-release"
 BRANCH_INPUT_MODE="args"
@@ -93,7 +117,7 @@ refresh_available_branches_in_config() {
         printf '%s\n' "$line" >> "$selected_file"
     done < "$CONFIG_FILE"
 
-    git -C "$SCRIPT_DIR" for-each-ref --format='%(refname:short)' refs/heads | sort > "$branches_file"
+    git -C "$WORK_DIR" for-each-ref --format='%(refname:short)' refs/heads | sort > "$branches_file"
 
     awk -v marker="$marker" '
         { print }
@@ -144,7 +168,7 @@ if [ $# -eq 0 ]; then
         echo "Or: Edit $CONFIG_FILE and run without arguments"
         echo ""
         echo "Available local branches:"
-        git -C "$SCRIPT_DIR" branch -v
+        git -C "$WORK_DIR" branch -v
         exit 1
     fi
 else
@@ -157,7 +181,7 @@ else
 fi
 
 # Resolve repo root and current branch (needed for localdev working-tree snapshot)
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+REPO_ROOT="$(git -C "$WORK_DIR" rev-parse --show-toplevel)"
 CURRENT_BRANCH="$(git -C "$REPO_ROOT" branch --show-current)"
 if [ -z "$CURRENT_BRANCH" ]; then
     echo -e "${RED}Error: HEAD is detached. Checkout a branch before running this script.${NC}"

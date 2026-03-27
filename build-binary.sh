@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="${WORKDIR:-$SCRIPT_DIR}"
+PARENT_WORKSPACE_DIR=$HOME/dev/Solar-Router-F1ATB-workspace
 
 # Optional: allow overriding work directory from CLI
 if [[ "${1:-}" == "--workdir" ]]; then
@@ -22,9 +23,9 @@ fi
 
 FQBN_DEFAULT="esp32:esp32:esp32:PartitionScheme=custom"
 FQBN="${FQBN:-$FQBN_DEFAULT}"
-OUT_DIR="${OUT_DIR:-$WORK_DIR/build}"
-ARCHIVE_DIR="${ARCHIVE_DIR:-$HOME/dev/Solar-Router-F1ATB-workspace/releases}"
-LOG_FILE="${LOG_FILE:-$WORK_DIR/build-binary.log}"
+OUT_DIR="${OUT_DIR:-$PARENT_WORKSPACE_DIR/build}"
+ARCHIVE_DIR="${ARCHIVE_DIR:-$PARENT_WORKSPACE_DIR/releases}"
+LOG_FILE="${LOG_FILE:-$PARENT_WORKSPACE_DIR/build-binary.log}"
 BUILD_TAG="${BUILD_TAG:-localdev}"
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
