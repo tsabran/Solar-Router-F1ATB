@@ -1922,6 +1922,16 @@ void GestionOverproduction() {  // chaque 200ms (adaptation 5 fois par seconde)
       }
       AppliquerRetard(j);
     }
+    // Recalcul du RetardF du séquenceur : moyenne pondérée des retards effectifs des relais
+    // (après forçages éventuels), pour que Retard[iSeq] reflète l'état réel du groupe.
+    // N'impacte pas le PID à la prochaine itération : RetardF[iSeq] sera entièrement
+    // recalculé depuis IntegrErrorPw[iSeq] (et Propor/DeriveF) dans la boucle PID.
+    float retardReel = 0.0f;
+    for (int r = 0; r < nbRelaisGeres; r++) {
+      retardReel += RetardF[idxRelaisGeres[r]] * float(puissRelais[r]);
+    }
+    RetardF[iSeq] = retardReel / float(puissTotale);
+    Retard[iSeq] = round(RetardF[iSeq]);
   }
 
   LissageLong = lissage;
