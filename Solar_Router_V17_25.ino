@@ -1,4 +1,4 @@
-#define Version  "17.20" // PhDV61
+#define Version "17.25"  //
 #define HOSTNAME "RMS-ESP32-"
 
 
@@ -309,6 +309,18 @@
   - Version 17.20
     Stockage adresse IP Enphase après decouverte par mDNS
     Mise à jour accès WPS pour s'adapter à la bibliothèque ESP 3.3.6
+  - Version 17.21
+    Prise en compte Shelly 3EM-63 Gen3 Triphasé
+  - Version 17.22
+    Re-ecriture Source Enphase pour s'adater à la version D8.3.5528. Merci à rdsoft30 et les nombreux autres participants pour s'adapter à la nouvelle version.
+    Fourniture dans le message Source externe des tensions et courants pour la variante du programme adaptée aux Véhicules Electriques
+  - Version 17.23
+    Amélioration du code pour Source Enphase par rdsoft30 et remarques Michy
+  - Version 17.24
+    Retrait Tension et courant V17.22 car bugé.
+  - Version 17.25
+    Fourniture (nouvelle version) dans le message Source externe des tensions et courants pour la variante du programme adaptée aux Véhicules Electriques 
+
  
 
 
@@ -316,7 +328,7 @@
   https://f1atb.fr  Section Domotique / Home Automation
 
   
-  F1ATB Mai 2026
+  F1ATB Juin 2026
 
   GNU Affero General Public License (AGPL) / AGPL-3.0-or-later
 
@@ -330,7 +342,7 @@
 //Librairies
 #include <Arduino.h>
 #include <WiFi.h>
-#include <esp_wifi.h> // SR19 2026 / accès couche IDF Espressif (bas niveau) pour WPS depuis gestionnaire ESP32 en 3.3.6+
+#include <esp_wifi.h>  // SR19 2026 / accès couche IDF Espressif (bas niveau) pour WPS depuis gestionnaire ESP32 en 3.3.6+
 #include <WiFiClientSecure.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
@@ -484,8 +496,8 @@ bool LastRecordConf = false;
 // ***************************
 //Plan stockage
 
-#define adr_HistoAn 0            //taille 2* 370*4=1480
-#define adr_E_T_soutire0 1480    // 1 long. Taille 4 Triac
+#define adr_HistoAn 0          //taille 2* 370*4=1480
+#define adr_E_T_soutire0 1480  // 1 long. Taille 4 Triac
 #define adr_E_T_injecte0 1484
 #define adr_E_M_soutire0 1488    // 1 long. Taille 4 Maison
 #define adr_E_M_injecte0 1492    // 1 long. Taille 4
@@ -601,12 +613,12 @@ float Intensite_M1 = 0, Intensite_M2 = 0, Intensite_M3 = 0;
 String MK333_dataBrute = "";
 
 //  ajout PhDV61 compteurs d'énergie quotidienne et totale soutirée et injectée JSY Mk 333
-float  Energie_Minuit_JSY_Soutiree = 0.0;  // Le contenu sera initialisé au premier appel UxIx3 après Reset
-float  Energie_Minuit_JSY_Injectee = 0.0;  // Le contenu sera initialisé au premier appel UxIx3 après Reset
-float  Energie_Jour_JSY_Soutiree   = 0.0;  // Le contenu sera initialisé au premier appel UxIx3 après Reset
-float  Energie_Jour_JSY_Injectee   = 0.0;  // Le contenu sera initialisé au premier appel UxIx3 après Reset
-double Energie_M_Soutiree_double    = 0.0;
-double Energie_M_Injectee_double    = 0.0;
+float Energie_Minuit_JSY_Soutiree = 0.0;  // Le contenu sera initialisé au premier appel UxIx3 après Reset
+float Energie_Minuit_JSY_Injectee = 0.0;  // Le contenu sera initialisé au premier appel UxIx3 après Reset
+float Energie_Jour_JSY_Soutiree = 0.0;    // Le contenu sera initialisé au premier appel UxIx3 après Reset
+float Energie_Jour_JSY_Injectee = 0.0;    // Le contenu sera initialisé au premier appel UxIx3 après Reset
+double Energie_M_Soutiree_double = 0.0;
+double Energie_M_Injectee_double = 0.0;
 
 long Temps_precedent = 0;  // mesure précise du temps entre deux appels au JSY-MK-333
 float PW_M1, PW_M2, PW_M3;
@@ -650,7 +662,8 @@ String EnphasePwd = "";
 String EnphaseSerial = "0";  //Sert égalemnet au Shelly comme numéro de voie
 String JsonToken = "";
 String Session_id = "";
-long LastwhDlvdCum = 0;             //Dernière valeur cumul Wh Soutire-injecté.
+long LastwhDlvdCum = 0;             //Dernière valeur cumul Wh Soutire.
+long LastwhRcvdCum = 0;             //Dernière valeur cumul Wh injecté
 float EMI_Wh = 0;                   //Energie entrée Maison Injecté Wh
 float EMS_Wh = 0;                   //Energie entrée Maison Soutirée Wh
 unsigned long lastTokenUpdate = 0;  //interval de temps depuis dernier Token Enphase //SR19
@@ -682,7 +695,7 @@ int LTARFbin = 0;  //Code binaire  des tarifs
 
 //Paramètres pour Source Externe
 int8_t RMSextIdx = 0;
-bool RMSextIPauto =true;
+bool RMSextIPauto = true;
 
 //Actions
 Action LesActions[LES_ACTIONS_LENGTH];  //Liste des actions
@@ -911,52 +924,52 @@ void IRAM_ATTR onTimer() {               //Interruption every 100 micro second
   }
 }
 
-/*** WPS Configurations ***/                                                                    //SR19 3.3.6+
-esp_wps_config_t wps_config = WPS_CONFIG_INIT_DEFAULT(WPS_TYPE_PBC);                            //SR19
-bool isGOT_IP = false;  //true si IP reçue                                                      //SR19
+/*** WPS Configurations ***/                                          //SR19 3.3.6+
+esp_wps_config_t wps_config = WPS_CONFIG_INIT_DEFAULT(WPS_TYPE_PBC);  //SR19
+bool isGOT_IP = false;                                                //true si IP reçue                                                      //SR19
 
 void wpsStop() {                                                                                //SR19
   esp_err_t err = esp_wifi_wps_disable();                                                       //SR19
   if (err != ESP_OK) {                                                                          //SR19
     TelnetPrintln("WPS Disable Failed: " + String(err, HEX) + "h -> " + esp_err_to_name(err));  //SR19
   }                                                                                             //SR19
-}                                                                                               //SR19
+}  //SR19
 
 //Gestionnaire évènements WPS/WiFi                                                              //SR19 3.3.6+
-void WiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {                                  //SR19 3.3.6+
-  switch (event) {                                                                              //SR19
+void WiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {  //SR19 3.3.6+
+  switch (event) {                                              //SR19
 
-    case ARDUINO_EVENT_WIFI_STA_GOT_IP:                                                         //SR19
-    // password déjà capturé en clair dans WPS_ER_SUCCESS                                       //SR19
-      ssid = WiFi.SSID(); // met à jour le SSID global                                          //SR19
-      password = WiFi.psk(); // met à jour le mot de passe global                               //SR19
-      password.trim(); // supprime espaces et caractères indésirables (dont \n, \r, \t)         //SR19
-      TelnetPrintln("WiFi : " + ssid + " connecté via WPS!");                                   //SR19
-      TelnetPrintln("Récupération IP de " + hostname + " -> " + (WiFi.localIP().toString()));   //SR19
-      TelnetPrintln("Récupération password -> " + password);                                    //SR19
-      EcritureEnROM();                                                                          //SR19
-      isGOT_IP = true;                                                                          //SR19
-      break;                                                                                    //SR19
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:                                                        //SR19
+                                                                                               // password déjà capturé en clair dans WPS_ER_SUCCESS                                       //SR19
+      ssid = WiFi.SSID();                                                                      // met à jour le SSID global                                          //SR19
+      password = WiFi.psk();                                                                   // met à jour le mot de passe global                               //SR19
+      password.trim();                                                                         // supprime espaces et caractères indésirables (dont \n, \r, \t)         //SR19
+      TelnetPrintln("WiFi : " + ssid + " connecté via WPS!");                                  //SR19
+      TelnetPrintln("Récupération IP de " + hostname + " -> " + (WiFi.localIP().toString()));  //SR19
+      TelnetPrintln("Récupération password -> " + password);                                   //SR19
+      EcritureEnROM();                                                                         //SR19
+      isGOT_IP = true;                                                                         //SR19
+      break;                                                                                   //SR19
 
-    case ARDUINO_EVENT_WPS_ER_SUCCESS:                                                          //SR19
-      TelnetPrintln("WPS réussi! Stop WPS et connexion vers: " + String(WiFi.SSID()));          //SR19
-      wpsStop(); //Must disable WPS before connecting                                           //SR19
-      delay(10);                                                                                //SR19
+    case ARDUINO_EVENT_WPS_ER_SUCCESS:                                                  //SR19
+      TelnetPrintln("WPS réussi! Stop WPS et connexion vers: " + String(WiFi.SSID()));  //SR19
+      wpsStop();                                                                        //Must disable WPS before connecting                                           //SR19
+      delay(10);                                                                        //SR19
       //WiFi.begin();     // Connect using credentials from WPS --> H.S. depuis 3.3.6+          //SR19
-      esp_wifi_connect(); // la config WPS est déjà chargée dans l'IDF - bibli <esp_wifi.h>     //SR19 3.3.6+
-      break;                                                                                    //SR19
+      esp_wifi_connect();  // la config WPS est déjà chargée dans l'IDF - bibli <esp_wifi.h>     //SR19 3.3.6+
+      break;               //SR19
 
-    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:                                                   //SR19
-      TelnetPrintln("Déconnecté. Redémarrage WiFi...");                                         //SR19
-      WiFi.reconnect();                                                                         //SR19
-      delay(10);                                                                                //SR19
-      isGOT_IP = false; //Réinitialiser l'événement si déconnecté                               //SR19
-      break;                                                                                    //SR19
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:            //SR19
+      TelnetPrintln("Déconnecté. Redémarrage WiFi...");  //SR19
+      WiFi.reconnect();                                  //SR19
+      delay(10);                                         //SR19
+      isGOT_IP = false;                                  //Réinitialiser l'événement si déconnecté                               //SR19
+      break;                                             //SR19
 
-    default:                                                                                    //SR19
-      break;                                                                                    //SR19
-  }                                                                                             //SR19
-}    
+    default:  //SR19
+      break;  //SR19
+  }           //SR19
+}
 
 // SETUP
 //*******
@@ -1053,7 +1066,7 @@ void setup() {
   InitTemperature();
 
   ReadFichierParametres();  //On remplace par les paramètres du fichier  qui sera éventuellement crée avec les données en ROM
-    
+
   LectureConsoMatinJour();
 
   TelnetPrintln("Chip Model: " + String(ESP.getChipModel()));
@@ -1074,7 +1087,7 @@ void setup() {
   InitGPIOs();
   TelnetPrintln("ESP32_Type:" + String(ESP32_Type));
   delay(500);
-  if ((ESP32_Type >= 4 && ESP32_Type <= 9)|| ESP32_Type==101) Ecran_Init(ESP32_Type);
+  if ((ESP32_Type >= 4 && ESP32_Type <= 9) || ESP32_Type == 101) Ecran_Init(ESP32_Type);
 
   IP2String(RMS_IP[0]);
   // Set youRMS_IP[0]c IP address
@@ -1155,7 +1168,7 @@ void setup() {
 
 
   //WIFI
-  if (ESP32_Type < 10 ||ESP32_Type==101) {
+  if (ESP32_Type < 10 || ESP32_Type == 101) {
     if (ModeReseau < 2) {
       TelnetPrintln("ssid:" + ssid);
       TelnetPrintln("password:" + password);
@@ -1186,42 +1199,42 @@ void setup() {
         TelnetPrintln("");
       }
     }
-   
+
     if (WiFi.status() == WL_CONNECTED && ModeReseau < 2) {
       RMS_IP[0] = String2IP(WiFi.localIP().toString());
       StockMessage("Connecté par WiFi, addresse IP : " + WiFi.localIP().toString() + " or <a href='http://" + hostname + ".local' >" + hostname + ".local</a>");
     } else {
-      /*** WPS SETUP ***/                                    //SR19
-       WiFi.mode(WIFI_AP_STA);                                           //SR19 3.3.6+
-      delay(10);                                                        //SR19
-      
-      if (WiFi.scanNetworks() != 0 && WiFi.RSSI(0) > -83) { //WPS inutile si aucun signal WiFi > -83dBm  //SR19
-        WiFi.disconnect(false, true); //RAZ config.                     //SR19
-        delay(100);                                                     //SR19
-        TelnetPrintln("Tentative de connexion via WPS...");             //SR19
-        WiFi.onEvent(WiFiEvent); //appel évènements WPS/WiFi depuis WiFiEvent(WiFiEvent_t event, arduino_event_info_t info) //SR19
-        delay(10);                                                      //SR19
-        esp_wifi_wps_enable(&wps_config);                               //SR19
-        esp_wifi_wps_start(0);                                          //SR19
-        startMillis = millis();                                         //SR19
+      /*** WPS SETUP ***/      //SR19
+      WiFi.mode(WIFI_AP_STA);  //SR19 3.3.6+
+      delay(10);               //SR19
+
+      if (WiFi.scanNetworks() != 0 && WiFi.RSSI(0) > -83) {      //WPS inutile si aucun signal WiFi > -83dBm  //SR19
+        WiFi.disconnect(false, true);                            //RAZ config.                     //SR19
+        delay(100);                                              //SR19
+        TelnetPrintln("Tentative de connexion via WPS...");      //SR19
+        WiFi.onEvent(WiFiEvent);                                 //appel évènements WPS/WiFi depuis WiFiEvent(WiFiEvent_t event, arduino_event_info_t info) //SR19
+        delay(10);                                               //SR19
+        esp_wifi_wps_enable(&wps_config);                        //SR19
+        esp_wifi_wps_start(0);                                   //SR19
+        startMillis = millis();                                  //SR19
         while (!isGOT_IP && (millis() - startMillis < 20000)) {  //Attente évènement "GOT_IP" pour récupération: ssid, password et IP //SR19
-          Gestion_LEDs();                                               //SR19
-          delay(300);                                                   //SR19
-        }                                                               //SR19
-        if (WiFi.status() == WL_CONNECTED && ModeReseau < 2) {          //SR19
-          RMS_IP[0] = String2IP(WiFi.localIP().toString());             //SR19
+          Gestion_LEDs();                                        //SR19
+          delay(300);                                            //SR19
+        }                                                        //SR19
+        if (WiFi.status() == WL_CONNECTED && ModeReseau < 2) {   //SR19
+          RMS_IP[0] = String2IP(WiFi.localIP().toString());      //SR19
           // Go into software AP and STA modes.                         //SR19
-          StockMessage("Connecté par WiFi via WPS, IP : " + WiFi.localIP().toString() + " nom d'hôte : <a href='http://" + hostname + ".local' >" + hostname + ".local</a>"                                                     //SR19
+          StockMessage("Connecté par WiFi via WPS, IP : " + WiFi.localIP().toString() + " nom d'hôte : <a href='http://" + hostname + ".local' >" + hostname + ".local</a>"                                                                      //SR19
                                                                                                                                                                " Copiez/collez le nom d'hôte dans votre navigateur. ESP32 en mode AP et STA.");  //SR19
-          LireSerial();                                                 //SR19
-          WiFi.softAP(ap_default_ssid, ap_default_psk); //on entre en mode AP pour enregistrer et lancer le RMS  //SR19
-        } else {                                                        //SR19
-          StockMessage("Echec de connexion WiFi via WPS. ESP32 en mode AP et STA."); //SR19
+          LireSerial();                                                                                                                                                                                                                          //SR19
+          WiFi.softAP(ap_default_ssid, ap_default_psk);                                                                                                                                                                                          //on entre en mode AP pour enregistrer et lancer le RMS  //SR19
+        } else {                                                                                                                                                                                                                                 //SR19
+          StockMessage("Echec de connexion WiFi via WPS. ESP32 en mode AP et STA.");                                                                                                                                                             //SR19
           // Go into software AP and STA modes.                         //SR19
-          LireSerial();                                                 //SR19
-          WiFi.softAP(ap_default_ssid, ap_default_psk);                 //SR19
-          infoSerieAP();                                                //SR19
-        }                                                               //SR19
+          LireSerial();                                  //SR19
+          WiFi.softAP(ap_default_ssid, ap_default_psk);  //SR19
+          infoSerieAP();                                 //SR19
+        }                                                //SR19
       } else {
         StockMessage("Pas de connexion WIFI. ESP32 en mode AP et STA.");
         // Go into software AP and STA modes.
@@ -1232,11 +1245,11 @@ void setup() {
         WiFi.softAP(ap_default_ssid, ap_default_psk);
         infoSerieAP();
       }
-      WiFi.scanDelete(); 
+      WiFi.scanDelete();
     }
   }
 
-  if ((ESP32_Type >= 4 && ESP32_Type <= 9)||ESP32_Type==101) {
+  if ((ESP32_Type >= 4 && ESP32_Type <= 9) || ESP32_Type == 101) {
     TraceMessages();  //Ecran
     delay(2000);
   }
@@ -1347,11 +1360,11 @@ void setup() {
 void Task_LectureRMS(void *pvParameters) {
 
   if (Source == "UxIx3") {
-    Setup_JSY333();            // init port série
-    delay(100);                // pour s'assurer que l'init du port série est ok coté module
+    Setup_JSY333();           // init port série
+    delay(100);               // pour s'assurer que l'init du port série est ok coté module
     PeriodeProgMillis = 800;  // la première lecture aura lieu 800ms plus tard
-    Requete_JSY333();          // requête initiale au module. La première lecture aura lieu PeriodeProgMillis =1000ms plus tard.
-                               // et les données seront déjà toutes dans le buffer de réception
+    Requete_JSY333();         // requête initiale au module. La première lecture aura lieu PeriodeProgMillis =1000ms plus tard.
+                              // et les données seront déjà toutes dans le buffer de réception
   }
   for (;;) {
     unsigned long tps = millis();
@@ -1397,7 +1410,7 @@ void Task_LectureRMS(void *pvParameters) {
       if (Source == "Enphase") {
         LectureEnphase();
         LastRMS_Millis = millis();
-        PeriodeProgMillis = 600 + ralenti;  //On s'adapte à la vitesse réponse Envoy-S metered
+        PeriodeProgMillis = 2000;  // + ralenti;  //On s'adapte à la vitesse réponse Envoy-S metered
       }
       if (Source == "SmartG") {
         LectureSmartG();
@@ -1524,13 +1537,13 @@ void loop() {
           tab_histo_2s_ouverture[i][IdxStock2s] = 0;
         }
       }
-      
+
       IdxStock2s = (IdxStock2s + 1) % 300;
       PuisMaxS_T = max(PuisMaxS_T, PuissanceS_T);
       PuisMaxS_M = max(PuisMaxS_M, PuissanceS_M);
       PuisMaxI_T = max(PuisMaxI_T, PuissanceI_T);
       PuisMaxI_M = max(PuisMaxI_M, PuissanceI_M);
-      
+
       JourHeureChange();
       EnergieQuotidienne();
       H_Ouvre_Equivalent(dt);
@@ -1577,7 +1590,7 @@ void loop() {
   }
   if (LastShowActionMillis != 0) {
     if (millis() - LastShowActionMillis > 6000) {  //Pas prendre tps en retard
-      ReadFichierParametres();                             //On remet les coefficint du PID aux valeurs stockés après des essais.
+      ReadFichierParametres();                     //On remet les coefficint du PID aux valeurs stockés après des essais.
       LastShowActionMillis = 0;
     }
   }
@@ -1593,7 +1606,7 @@ void loop() {
     JourHeureChange();
 
     TelnetPrintln("\nDate : " + DATE);
-    if (ESP32_Type < 10 || ESP32_Type ==101) {  //ESP32 en WIFI
+    if (ESP32_Type < 10 || ESP32_Type == 101) {  //ESP32 en WIFI
       if (WiFi.getMode() == WIFI_STA) {
         if (WiFi.waitForConnectResult(10000) != WL_CONNECTED) {
           StockMessage("WIFI Connection Failed! #" + String(WIFIbug));
@@ -1625,7 +1638,7 @@ void loop() {
     } else {  //ESP32 Ethernet
       PrintScroll("IP :" + Ethernet.localIP().toString());
       if (Ethernet.linkStatus() == LinkOFF) {
-      
+
         PrintScroll("Câble Ethernet non connecté.");
         EthernetBug++;
       } else {
@@ -1687,7 +1700,7 @@ void loop() {
 
 
   //Ecran
-  if ((ESP32_Type >= 4 && ESP32_Type <= 9)|| ESP32_Type==101) Ecran_Loop();
+  if ((ESP32_Type >= 4 && ESP32_Type <= 9) || ESP32_Type == 101) Ecran_Loop();
   //Port Série
   LireSerial();
   delay(1);
@@ -1868,7 +1881,7 @@ void InitGPIOs() {
     RXD2 = RX2_[pSerial];              //Port serie
     TXD2 = TX2_[pSerial];
   }
-  if (((ESP32_Type >= 4 && ESP32_Type <= 9)|| ESP32_Type==101 )&& clickPresence == 1) pinMode(35, INPUT);  //Motion detector en 35
+  if (((ESP32_Type >= 4 && ESP32_Type <= 9) || ESP32_Type == 101) && clickPresence == 1) pinMode(35, INPUT);  //Motion detector en 35
   if (pTemp > 0) {
     TelnetPrint("Init Temp:");
     TelnetPrintln(String(pinTemp[pTemp]));
@@ -1907,24 +1920,24 @@ void EnergieQuotidienne() {
       EAS_M_J0 = Energie_M_Soutiree;
     }
 
-    EnergieJour_M_Soutiree = Energie_M_Soutiree - EAS_M_J0; // Energie soutirée totale - valeur soutirée à minuit 
- 
+    EnergieJour_M_Soutiree = Energie_M_Soutiree - EAS_M_J0;  // Energie soutirée totale - valeur soutirée à minuit
+
     if (Energie_M_Injectee < EAI_M_J0 || EAI_M_J0 == 0) {
       EAI_M_J0 = Energie_M_Injectee;
     }
 
     EnergieJour_M_Injectee = Energie_M_Injectee - EAI_M_J0;
- 
+
     if (Energie_T_Soutiree < EAS_T_J0 || EAS_T_J0 == 0) {
       EAS_T_J0 = Energie_T_Soutiree;
     }
 
     EnergieJour_T_Soutiree = Energie_T_Soutiree - EAS_T_J0;
- 
+
     if (Energie_T_Injectee < EAI_T_J0 || EAI_T_J0 == 0) {
       EAI_T_J0 = Energie_T_Injectee;
     }
-    
+
     EnergieJour_T_Injectee = Energie_T_Injectee - EAI_T_J0;
   }
 }
