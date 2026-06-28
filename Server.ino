@@ -168,28 +168,29 @@ void handleMainJS1() {                  // Code Javascript
   if (nomSondeFixe != "" && (Source_data == "UxIx2" || ((Source_data == "ShellyEm" || Source_data == "ShellyPro") && EnphaseSerial.toInt() != 3))) {
     S = "var biSonde=true;\r\n";
   }
-
-  server.send(200, "text/javascript", S + MainJS1);  // Javascript code
+  server.setContentLength(S.length() + strlen(MainJS1)); // on evite de pré-concaténer S + MainJS1 pour ne pas saturer la RAM
+  server.send(200, "text/javascript", S);
+  server.sendContent(MainJS1, strlen(MainJS1)); // sendContent : streame sans alloc heap
 }
 void handleMainJS2() {  // Code Javascript
   CacheEtClose(300);
-  server.send(200, "text/javascript", MainJS2);  // Javascript code
+  server.send_P(200, "text/javascript", MainJS2);  // send_P : streame sans alloc heap
 }
 void handleMainJS3() {  // Code Javascript
   CacheEtClose(300);
-  server.send(200, "text/javascript", MainJS3);  // Javascript code
+  server.send_P(200, "text/javascript", MainJS3);  // send_P : streame sans alloc heap
 }
 void handleBrute() {  // Page données brutes
   CacheEtClose(300);
-  server.send(200, "text/html", PageBrute);
+  server.send_P(200, "text/html", PageBrute); // send_P : streame sans alloc heap
 }
 void handleBruteJS1() {  // Code Javascript
   CacheEtClose(300);
-  server.send(200, "text/javascript", PageBruteJS1);  // Javascript code
+  server.send_P(200, "text/javascript", PageBruteJS1); // send_P : streame sans alloc heap
 }
 void handleBruteJS2() {  // Code Javascript
   CacheEtClose(300);
-  server.send(200, "text/javascript", PageBruteJS2);  // Javascript code
+  server.send_P(200, "text/javascript", PageBruteJS2); // send_P : streame sans alloc heap
 }
 void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
   String S = "";
@@ -268,21 +269,46 @@ void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
     if (Source_data == "Enphase") {
       S += GS + String(Tension_M) + RS + String(Intensite_M) + RS + String(PuissanceS_M - PuissanceI_M) + RS + String(PowerFactor_M) + RS + String(Energie_M_Soutiree) + RS + String(Energie_M_Injectee);
       S += RS + String(PactProd) + RS + String(PactConso_M);
-      String SessionId = "Not Received from Enphase";
-      if (Session_id != "") {
-        SessionId = "Ok Received from Enphase";
-      }
-      String Token_Enphase = "Not Received from Enphase";
+      String msgTokenEnphase = "Not Received from Enphase";
       if (TokenEnphase.length() > 50) {
-        Token_Enphase = "Ok Received from Enphase";
+        msgTokenEnphase = "Ok Received from Enphase";
+      }
+      String msgEnvoySessionCookie = "Not Received from Envoy or not valid";
+      if (EnvoySessionIdCookie != "") {
+        msgEnvoySessionCookie = "Ok Received from Envoy";
       }
       if (EnphaseUser == "") {
-        SessionId = "Not Requested";
-        Token_Enphase = "Not Requested";
+        msgTokenEnphase = "Not Requested";
+        msgEnvoySessionCookie = "Not Requested";
       }
-      S += RS + SessionId;
 
-      S += RS + Token_Enphase;
+      S += RS + msgTokenEnphase;
+      S += RS + msgEnvoySessionCookie;
+
+      S += RS + "AVG: " + String(EnvoyDureeDerniereConnexionRenouveleeMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereConnexionRenouveleeMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDerniereConnexionReutiliseeMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereConnexionReutiliseeMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDerniereRequeteViaAuthBearerMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereRequeteViaAuthBearerMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDerniereRequeteViaSessionCookieMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereRequeteViaSessionCookieMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDernierJsonParsingMs.avg) + " ms | LAST: " + String(EnvoyDureeDernierJsonParsingMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDerniereLectureCompleteMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereLectureCompleteMs.last);
+      S += RS + "AVG: " + String(EnvoyIntervaleDernieresLecturesCompleteslMs.avg) + " ms | LAST: " + String(EnvoyIntervaleDernieresLecturesCompleteslMs.last);
+
+      S += RS + EnvoyCompteTentativesConnexionRenouvelee;
+      S += RS + EnvoyCompteTentativesRequeteAuthBearer;
+      S += RS + EnvoyCompteTentativesLectureComplete;
+      S += RS + EnvoyCompteSuccesLectureComplete;
+      S += RS + EnvoyCompteErreurEchecConnect;
+      S += RS + EnvoyCompteErreurConnectionClosed;
+      S += RS + EnvoyCompteErreurTimeout;
+      if (EnvoyCompteTentativesLectureComplete > 0) {
+        S += RS + String(100.f*EnvoyCompteErreurConnectionClosed/EnvoyCompteTentativesLectureComplete);
+        S += RS + String(100.f*EnvoyCompteErreurTimeout/EnvoyCompteTentativesLectureComplete);
+        S += RS + String(100.f*EnvoyCompteTentativesConnexionRenouvelee/EnvoyCompteTentativesLectureComplete);
+      } else {
+        S += RS + "NA" + RS + "NA" + RS + "NA";
+      }
+      
+
     }
     if (Source_data == "SmartG") {
       S += GS + SG_dataBrute;
@@ -564,19 +590,19 @@ void handleActions() {
 }
 void handleActionsJS1() {
   CacheEtClose(300);
-  server.send(200, "text/javascript", ActionsJS1);
+  server.send_P(200, "text/javascript", ActionsJS1); // send_P : streame sans alloc heap
 }
 void handleActionsJS2() {
   CacheEtClose(300);
-  server.send(200, "text/javascript", ActionsJS2);
+  server.send_P(200, "text/javascript", ActionsJS2); // send_P : streame sans alloc heap
 }
 void handleActionsJS3() {
   CacheEtClose(300);
-  server.send(200, "text/javascript", ActionsJS3);
+  server.send_P(200, "text/javascript", ActionsJS3); // send_P : streame sans alloc heap
 }
 void handleActionsJS4() {
   CacheEtClose(300);
-  server.send(200, "text/javascript", ActionsJS4);
+  server.send_P(200, "text/javascript", ActionsJS4); // send_P : streame sans alloc heap
 }
 
 
@@ -653,15 +679,15 @@ void handleCleUpdate() {
 }
 void handleParaJS1() {
   CacheEtClose(300);
-  server.send(200, "text/javascript", ParaJS1);
+  server.send_P(200, "text/javascript", ParaJS1); // send_P : streame sans alloc heap
 }
 void handleParaJS2() {
   CacheEtClose(300);
-  server.send(200, "text/javascript", ParaJS2);
+  server.send_P(200, "text/javascript", ParaJS2); // send_P : streame sans alloc heap
 }
 void handleParaCommunJS() {
   CacheEtClose(300);
-  server.send(200, "text/javascript", ParaCommunJS);
+  server.send_P(200, "text/javascript", ParaCommunJS); // send_P : streame sans alloc heap
 }
 void handleParaFixe() {  //Paramètres stockés en fichier
   File file = LittleFS.open("/parametres.json", "r");
@@ -879,7 +905,7 @@ void handleCouleurs() {
 }
 void handleCommunCouleurJS() {  // Code Javascript
   CacheEtClose(300);
-  server.send(200, "text/javascript", CommunCouleurJS);  // Javascript code
+  server.send_P(200, "text/javascript", CommunCouleurJS); // send_P pour envoyer depuis la mémoire flash
 }
 void handleCouleursAjax() {
 
@@ -940,14 +966,14 @@ void handleNotFound() {  // Page Web pas trouvé
 void CacheEtClose(int16_t seconde) {
   server.sendHeader("Cache-Control", "max-age=" + String(seconde));
 }
-void lectureCookie(String S) {
+void lectureCookie(const char* S) {
   ExtraitCookie();
-  if (S != "") {
+  if (S != nullptr && S[0] != '\0') {
 
     if (CleAccesRef == CleAcces) {
-      server.send(200, "text/html", S);
+      server.send_P(200, "text/html", S);
     } else {
-      server.send(200, "text/html", ParaCleHtml);  // Demande clé d'acces / mot de passe
+      server.send_P(200, "text/html", ParaCleHtml);  // Demande clé d'acces / mot de passe
     }
   }
 }

@@ -44,8 +44,28 @@ const E = [
   ["Energie_M_Injectee", "Energie active injectée", "Wh", "Wh"],
   ["PactProd", "Puissance produite <small>(Pw)</small>", "W", "W"],
   ["PactConso_M", "Puissance consommée <small>(Pw)</small>", "W", "W"],
-  ["SessionId", "Session Id", "", "Enph"],
-  ["Token_Enphase", "Token", "", "Enph"]
+  ["Token_Enphase", "Enphase Token", "", "Enph"],
+  ["EnvoySessionCookie", "Envoy SessionId Cookie", "", "Enph"],
+
+  ["EnvoyDureeDerniereConnexionRenouveleeMs", "(step1) Durée reconnexion TLS Envoy", "ms", "Enph"],
+  ["EnvoyDureeDerniereConnexionReutiliseeMs", "(step1) Durée reutilisation de connection TLS Envoy", "ms", "Enph"],
+  ["EnvoyDureeDerniereRequeteViaAuthBearerMs", "(step2) Durée Authent via Bearer Token", "ms", "Enph"],
+  ["EnvoyDureeDerniereRequeteViaSessionCookieMs", "(step2) Durée Authent via Session Cookie", "ms", "Enph"],
+  ["EnvoyDureeDernierJsonParsingMs", "(step3) Durée Parsing Json", "ms", "Enph"],
+  ["EnvoyDureeDerniereLectureCompleteMs", "Durée totale Lecture Enphase", "ms", "Enph"],
+  ["EnvoyIntervaleDernieresLecturesCompleteslMs", "Délai entre dernieres lectures Enphase", "ms", "Enph"],
+
+  ["EnvoyCompteTentativesConnexionRenouvelee", "# tentatives reconnexions TLS Envoy", "", "Enph"],
+  ["EnvoyCompteTentativesRequeteAuthBearer", "# tentatives Auth Bearer Token Envoy", "", "Enph"],
+  ["EnvoyCompteTentativesLectureComplete", "# tentatives lectures Envoy", "", "Enph"],
+  ["EnvoyCompteSuccesLectureComplete", "# succès lectures Envoy", "", "Enph"],
+  ["EnvoyCompteErreurEchecConnect", "# erreurs ouverture connexion Envoy", "", "Enph"],
+  ["EnvoyCompteErreurConnectionClosed", "# erreurs connexion closed pendant réception réponse Envoy", "", "Enph"],
+  ["EnvoyCompteErreurTimeout", "# erreurs timeout pendant réception réponse Envoy", "", "Enph"],
+  ["EnvoyRatioErreurConnectionClosed", "Ratio erreurs connexion closed pendant réception réponse Envoy", "%", "Enph"],
+  ["EnvoyRatioErreurTimeout", "Ratio erreurs timeout pendant réception réponse Envoy", "%", "Enph"],
+  ["EnvoyRatioReconnexion", "Ratio reconnexions TLS Envoy / total requêtes", "%", "Enph"]
+
 ];
 
 // ============================================================================

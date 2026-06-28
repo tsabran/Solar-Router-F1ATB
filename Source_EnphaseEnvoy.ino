@@ -22,7 +22,7 @@ void Setup_Enphase() {
     }                                                                                                //SR19
     if (envoyIP.toString() != "0.0.0.0") {                                                           //SR19
       StockMessage("IP Enphase : http://" + String(host) + ".local" + " -> " + envoyIP.toString());  //SR19
-      RMSextIP = ipToInt(envoyIP);
+      RMSextIP = ipToInt(envoyIP);  
       EcritureEnROM();                                              //IP -> uint32                                                                         //SR19
     } else {                                                        //SR19
       StockMessage("Échec! passerelle Enphase envoy déconnectée");  //SR19
@@ -35,6 +35,8 @@ void Setup_Enphase() {
   String Host = String(server1Enphase);
   String adrEnphase = "https://" + Host + "/login/login.json";
   String requestBody = "user[email]=" + EnphaseUser + "&user[password]=" + urlEncode(EnphasePwd);
+  String Session_id = "";
+  String JsonToken = "";
 
   if (EnphaseUser != "" && EnphasePwd != "" && RMSextIP > 0) {  // test envoyIP si perte de connexion //SR19
     TelnetPrintln("Essai connexion  Enlighten server 1 pour obtention session_id!");
@@ -43,7 +45,7 @@ void Setup_Enphase() {
       StockMessage("Connection failed to Enlighten server :" + Host);
     else {
       TelnetPrintln("Connected to Enlighten server:" + Host);
-      StockMessage("Connected to Enlighten server :" + Host);
+	    StockMessage("Connected to Enlighten server :" + Host);
       clientSecu.println("POST " + adrEnphase + "?" + requestBody + " HTTP/1.0");
       clientSecu.println("Host: " + Host);
       clientSecu.println("Connection: close");
@@ -68,8 +70,8 @@ void Setup_Enphase() {
     }
     Session_id = StringJson("session_id", JsonToken);
     TelnetPrintln("session_id :" + Session_id);
-    StockMessage("session_id :" + Session_id);
-  }
+	  StockMessage("session_id :" + Session_id);
+  } 
 
   //Obtention Token
   //********************
@@ -84,7 +86,7 @@ void Setup_Enphase() {
       StockMessage("Connection failed to :" + Host);
     else {
       TelnetPrintln("Connected to :" + Host);
-      StockMessage("Connected to :" + Host);
+	    StockMessage("Connected to :" + Host);
       clientSecu.println("POST " + adrEnphase + " HTTP/1.0");
       clientSecu.println("Host: " + Host);
       clientSecu.println("Content-Type: application/json");
@@ -128,85 +130,311 @@ void Setup_Enphase() {
   }
 }
 
-bool JSONReadingEnphase(NetworkClientSecure* pClient, String* pString, char cUntilChar, unsigned long nTimeout) {
-  if ((pClient == 0) || (pString == 0))
-    return true;
 
-  pClient->setTimeout(nTimeout);
-  unsigned long nT0 = millis();
-  *pString = pClient->readStringUntil(cUntilChar);
-  return ((millis() - nT0) > nTimeout);
+
+enum ReadStatus
+{
+  READ_OK,
+  READ_INVALID_ARGUMENT,
+  READ_TIMEOUT,
+  READ_DISCONNECTED,
+  READ_TOO_LONG
+};
+
+
+const char* ReadStatusToString(int status)
+{
+  switch (status) {
+    case READ_OK:
+      return "OK";
+    case READ_INVALID_ARGUMENT:
+      return "INVALID_ARGUMENT";
+    case READ_TIMEOUT:
+      return "TIMEOUT";
+    case READ_DISCONNECTED:
+      return "DISCONNECTED";
+    case READ_TOO_LONG:
+      return "TOO_LONG";
+    default:
+      return "UNKNOWN";
+  }
 }
 
-void LectureEnphase() {
-#define TIMEOUT_JSON_READING 100
-#define TIMEOUT_WAITING_ANSWER 500
-#define TIMEOUT_CONNECT 3000
-  // init variable
+int ReadBufferUntilChar(  // Précedemment appelé JSONReadingEnphase
+    NetworkClient& stream,
+    char* out,
+    size_t maxSize,
+    size_t& outLen,
+    char untilChar,
+    unsigned long timeoutMs)
+{
+  if (maxSize == 0) return READ_INVALID_ARGUMENT;
+
+  outLen = 0;
+  out[0] = '\0';
+
+  const size_t maxLen = maxSize - 1;
+  unsigned long lastActivity = millis();
+
+  while (true) {
+    while (stream.available() > 0) {
+      int c = stream.read();
+      if (c < 0) break;
+
+      lastActivity = millis();
+
+      if ((char)c == untilChar) {
+        out[outLen] = '\0';
+        return READ_OK;
+      }
+
+      if (outLen >= maxLen) {
+        out[outLen] = '\0';
+        return READ_TOO_LONG;
+      }
+
+      out[outLen++] = (char)c;
+    }
+
+    if (!stream.connected() && stream.available() == 0) {
+      out[outLen] = '\0';
+      EnvoyCompteErreurConnectionClosed += 1;
+      return READ_DISCONNECTED;
+    }
+
+    if ((unsigned long)(millis() - lastActivity) >= timeoutMs) {
+      out[outLen] = '\0';
+      EnvoyCompteErreurTimeout += 1;
+      return READ_TIMEOUT;
+    }
+
+    yield();
+  }
+}
+
+
+void PurgeClientBuffer(NetworkClientSecure& client)
+{
+    while (client.available() > 0) {
+      (void)client.read();
+    }
+}
+
+
+
+
+String ExtractEnvoySessionId(const String& httpHeader)
+{
+  int p = httpHeader.indexOf("sessionId=");
+  if (p < 0)
+    return "";
+
+  p += 10; // strlen("sessionId=")
+
+  int q = httpHeader.indexOf(';', p);
+  if (q < 0)
+    q = httpHeader.length();
+
+  return httpHeader.substring(p, q);
+}
+
+
+
+bool CaptureEnvoySessionIdFromHeaders(NetworkClientSecure& pClient, unsigned long nTimeout)
+{
+
+  static char httpHeaderBuf[256]; // 'static' pour en faire une variable globale et eviter de saturer la pile
+  size_t httpHeaderLength = 0;
+
+  // Seuls les appels locaux Envoy authentifiés par bearer nécessitent la lecture des headers,
+  // car ils renvoient le cookie local `sessionId` à réutiliser sur les appels suivants.
+  while(true)
+  {
+    int status = ReadBufferUntilChar(pClient, httpHeaderBuf, sizeof(httpHeaderBuf), httpHeaderLength, '\n', nTimeout);
+
+    if (status != READ_OK) {
+      StockMessage(String("Envoy Headers reading failed, status= ") + ReadStatusToString(status) + ", partialLen=" + httpHeaderLength);
+      return true;
+    }
+
+    String httpHeader = String(httpHeaderBuf, httpHeaderLength);
+    httpHeader.trim();
+    if (httpHeader.length() == 0)
+      return false; //all headers have been read
+
+    if(httpHeader.startsWith("Set-Cookie:"))
+    {
+      String newSessionId = ExtractEnvoySessionId(httpHeader);
+      if(newSessionId != "")
+      {
+        EnvoySessionIdCookie = newSessionId;
+	      StockMessage("Envoy local sessionId successfully cached");
+      }
+    }
+  }
+}
+
+void LectureEnphase() 
+{
+  #define TIMEOUT_READ_PAYLOAD    100
+  #define TIMEOUT_WAITING_ANSWER  500
+  #define TIMEOUT_CONNECT         3000
+
+  EnvoyCompteTentativesLectureComplete += 1;
+  // init variable 
   static unsigned long g_nLastGoodReading = millis();
   bool bJsonLoadingFinished = false;
-  bool bTimeout;
 
   float PactReseau = 0.0f;
   float PvaReseau = 0.0f;
   long whDlvdCum = 0L;  // on perd les decimals après la virgule avec un type long
-  long whRcvdCum = 0L;
-
-  String jsonPayload;
+  long whRcvdCum = 0L; 
+  
   String host = IP2String(RMSextIP);
   String baseRequest;
-  baseRequest = "/ivp/meters/readings HTTP/1.0\r\nHost: " + host + "\r\nAccept: application/json\r\nConnection: keep-alive\r\n";
+  baseRequest = "/ivp/meters/readings HTTP/1.1\r\nHost: " + host + "\r\nAccept: application/json\r\nConnection: keep-alive\r\n";
+  static NetworkClientSecure client; 
 
-  static uint32_t lastTokenUpdate = millis();  // premier passage, le token a été obtenu via setup_enphase
   constexpr uint32_t TOKEN_REFRESH_MS = 30UL * 24UL * 60UL * 60UL * 1000UL;
-  if (TokenEnphase.length() > 50 && EnphaseUser != "") {
+  if (TokenEnphase.length() > 50 && EnphaseUser != "") 
+  {  
     // Connexion pour firmware V7 en https
-    NetworkClientSecure client;
-
-    if ((millis() - lastTokenUpdate) > TOKEN_REFRESH_MS) {  // Tout les 30 jours on recherche un nouveau Token
-      lastTokenUpdate = millis();                           // overflow compatible!
+    
+    if ((millis() - lastTokenUpdate) > TOKEN_REFRESH_MS) 
+	  {    // Tout les 30 jours on recherche un nouveau Token
+      lastTokenUpdate = millis();                         // overflow compatible!
       Setup_Enphase();
     }
 
-    if (!client.connected()) {  // établi la connexion
-      client.setInsecure();     // skip verification
-      client.setTimeout(TIMEOUT_CONNECT);
-      if (!client.connect(host.c_str(), 443)) {
-        StockMessage("Connection failed to Envoy-S server! : https://" + String(host));
-        return;  // on sort, pas de comm avec le server enphase
+    // `Cookie: sessionId=...` est le cookie de session local de l'Envoy, et non le `session_id` Enlighten/entrez.
+    // Il fait gagner environ 25 ms sur chaque appel a la gateway Envoy par rapport a `Authorization: Bearer`.
+    unsigned long nLectureStarted = millis();
+
+    for(int retry = 0; retry < 3; retry++) // boucle pour tester d'abord la connexion authentifiée avec le cookie, puis si refusé on retente avec le token
+    {
+      yield();
+
+      if (client.connected()) {
+        if (client.remoteIP().toString() != host || client.remotePort() != 443 ) {
+          StockMessage("Envoy connection host or port has changed, recreating connection");
+          client.stop();
+        } else {
+          // on tente de reutiliser la connection ouverte. on purge d'abord le contenu restant dans le buffer.
+          // attention: le server peut encore envoyer du contenu pour la requete precedente,
+          // il faudra prendre soin d'ignorer ce contenu quand on attendra la reponse de la prochaine requete
+          unsigned long nConnectStarted = millis();
+          PurgeClientBuffer(client);
+          EnvoyDureeDerniereConnexionReutiliseeMs.add(millis() - nConnectStarted);
+        }
       }
-      //StockMessage("Connected to Envoy-S server HTTPS!");
+
+      if (!client.connected()) 
+	    {  // établi la connexion
+        TelnetPrintln("Envoy connection is closed. (Re)connecting...");
+
+        // TelnetPrintln("Connecting to Envoy-S server HTTPS...");
+        EnvoyCompteTentativesConnexionRenouvelee += 1;
+        client.stop();        
+        delay(10); // (optionnel) petite pause pour laisser lwIP libérer la socket
+        client.setInsecure();     // skip verification
+        client.setTimeout(TIMEOUT_CONNECT);
+        unsigned long nConnectStarted = millis();
+        if (!client.connect(host.c_str(), 443)) 
+	      {
+          StockMessage(String("Connection failed to Envoy-S server! : https://") + host);
+          EnvoyCompteErreurEchecConnect += 1;
+          client.stop();
+          return; // on sort, pas de comm avec le server enphase
+        }
+        EnvoyDureeDerniereConnexionRenouveleeMs.add(millis() - nConnectStarted);
+
+        TelnetPrintln("Connected to Envoy-S server HTTPS!");
+      }
+
+
+      unsigned long nRequestStarted = millis();
+
+      bool bUseCookie = (EnvoySessionIdCookie != "");
+      if(bUseCookie) {
+        client.println("GET " + baseRequest + "Cookie: sessionId=" + EnvoySessionIdCookie + "\r\n\r\n");
+      } else {
+        EnvoyCompteTentativesRequeteAuthBearer += 1;
+        client.println("GET " + baseRequest + "Authorization: Bearer " + TokenEnphase + "\r\n\r\n");
+      }
+
+      static char statusLine[256]; // 'static' pour en faire une variable globale et eviter de saturer la pile
+      size_t statusLineLen = 0;
+      int result = 0;
+      do {
+        // on consomme le buffer jusqu'à la premiere ligne d'une nouvelle reponse HTTP (contenant HTTP/), 
+        // au cas où il restait du buffer non consommé de la precedente requete, recu entre-temps).
+          result = ReadBufferUntilChar(client, statusLine, sizeof(statusLine), statusLineLen, '\n', TIMEOUT_WAITING_ANSWER);
+      } while (!strstr(statusLine, "HTTP/") && result == READ_OK);
+      // Cette ligne devrait alors contenir le HTTP response code (200, 401...)
+
+
+      if(!strstr(statusLine, "HTTP/")) {
+        if (result == READ_DISCONNECTED) {
+          TelnetPrintln("Envoy connection closed before sending any HTTP response. Retrying new connection...");
+        } else {
+          StockMessage(String("Envoy error while reading HTTP response status, status= ") + ReadStatusToString(result) + ", partialLen=" + statusLineLen);
+        }
+        client.stop();
+        continue;  //retry on next loop with a new connection
+      }
+
+      // si on a un 401 et qu'on a utilisé le cookie, alors on s'autorise 
+      // à retenter avec le token via continue, apres avoir invalidé le cookie
+      if(bUseCookie && strstr(statusLine, "401")) {
+        EnvoySessionIdCookie = "";
+	      StockMessage("Envoy SessionId not valid anymore, retrying with Auth Bearer...");
+        continue;  //retry on next loop with auth bearer
+      }
+
+      if(!strstr(statusLine, "200")) {
+        // toute autre erreur n'est pas récupérable, on sort de la fonction
+        StockMessage(String("Envoy refused request: statusLine=[") + statusLine + "]");
+        client.stop();
+        return;  //retry on next LectureEnphase() call
+      }
+
+      // ici, on a un 200 OK, on va pouvoir sortir de la boucle et lire le JSON
+      if(!bUseCookie) // si on a utilisé le token, on doit récupérer le cookie sessionId pour les prochains appels
+      {
+        EnvoyDureeDerniereRequeteViaAuthBearerMs.add(millis() - nRequestStarted);
+        CaptureEnvoySessionIdFromHeaders(client, TIMEOUT_WAITING_ANSWER);
+      } else {
+        EnvoyDureeDerniereRequeteViaSessionCookieMs.add(millis() - nRequestStarted);
+      }
+      break;
     }
 
-    client.println("GET " + baseRequest + "Authorization: Bearer " + TokenEnphase + "\r\n\r\n");
-
-    bTimeout = JSONReadingEnphase(&client, &jsonPayload, '\n', TIMEOUT_WAITING_ANSWER);
-    jsonPayload.trim();
-    //TelnetPrintln("HTTP: " + statusLine);
-    if (bTimeout || (jsonPayload.indexOf("200") < 0)) {
-      StockMessage("Envoy refused request");
-      client.stop();
-      return;
-    }
-
+    unsigned long nJsonParsingStarted = millis();
     int nGlobalIndex = 0;
     int nPhaseIndex = 0;
     bool bMonoPhase = true;
 
     //TelnetPrintln("Waiting JSON data ...");
 
+    static char jsonPayload[1024]; // 'static' pour en faire une variable globale et eviter de saturer la pile
+    size_t jsonPayloadLength = 0;
+
     // Saute L'entete d'ouverture de la trame JSON.
-    bTimeout = JSONReadingEnphase(&client, &jsonPayload, '[', TIMEOUT_JSON_READING);
-    if (bTimeout) {
-      StockMessage("JSON Reading Timeout 1");
+    int status = ReadBufferUntilChar(client, jsonPayload, sizeof(jsonPayload), jsonPayloadLength, '[', TIMEOUT_READ_PAYLOAD);
+
+    if (status != READ_OK) {
+      StockMessage(String("Envoy JSON Reading 1 failed, status= ") + ReadStatusToString(status) + ", partialLen=" + jsonPayloadLength);
+      client.stop();
       return;
     }
 
-    for (nGlobalIndex = 0; (nGlobalIndex < 8) && !bJsonLoadingFinished && !bTimeout; nGlobalIndex++) {
+    for (nGlobalIndex = 0; (nGlobalIndex < 8) && !bJsonLoadingFinished; nGlobalIndex++) {
       // Read Global Topic
-      bTimeout = JSONReadingEnphase(&client, &jsonPayload, '[', TIMEOUT_JSON_READING);
-      if (bTimeout) {
-        StockMessage("JSON Reading Timeout 2 / nGlobalIndex=" + String(nGlobalIndex) + " nPhaseIndex=" + String(nPhaseIndex));
+      int status = ReadBufferUntilChar(client, jsonPayload, sizeof(jsonPayload), jsonPayloadLength, '[', TIMEOUT_READ_PAYLOAD);
+
+      if (status != READ_OK) {
+        StockMessage(String("Envoy JSON Reading 2 failed, status= ") + ReadStatusToString(status) + ", partialLen=" + jsonPayloadLength);
+        client.stop();
         return;
       }
       delay(1);
@@ -214,7 +442,7 @@ void LectureEnphase() {
       if (nGlobalIndex == 0) {
         //StockMessage(jsonPayload);
         float tension = ValJson("voltage", jsonPayload);
-        long eid = LongJson("eid", jsonPayload);
+        // long eid = LongJson("eid", jsonPayload);
 
         //StockMessage("Tension Global0 ="+String(tension));
 
@@ -230,23 +458,25 @@ void LectureEnphase() {
         }
       } else if (nGlobalIndex == 1) {
         if (!bMonoPhase) {
-          PactReseau = ValJson("activePower", jsonPayload);
+            PactReseau = ValJson("activePower", jsonPayload);
           PactConso_M = PactReseau + PactProd;  // dans l'hypothese qu'il n'y a pas de l'énergie fournit par une batterie !
-          PvaReseau = ValJson("apparentPower", jsonPayload);
-          whDlvdCum = ValJson("actEnergyDlvd", jsonPayload);
-          whRcvdCum = ValJson("actEnergyRcvd", jsonPayload);
-          Frequence = ValJson("freq", jsonPayload);
+            PvaReseau = ValJson("apparentPower", jsonPayload);
+            whDlvdCum = ValJson("actEnergyDlvd", jsonPayload);
+            whRcvdCum = ValJson("actEnergyRcvd", jsonPayload);
+            Frequence = ValJson("freq", jsonPayload);
         }
       }
 
-      for (nPhaseIndex = 0; (nPhaseIndex < 3) && !bJsonLoadingFinished && !bTimeout; nPhaseIndex++) {
+      for (nPhaseIndex = 0; (nPhaseIndex < 3) && !bJsonLoadingFinished; nPhaseIndex++) {
         // Read Phase
-        bTimeout = JSONReadingEnphase(&client, &jsonPayload, '}', TIMEOUT_JSON_READING);
-        if (bTimeout) {
-          StockMessage("JSON Reading Timeout 3 / nGlobalIndex=" + String(nGlobalIndex) + " nPhaseIndex=" + String(nPhaseIndex));
+        int status = ReadBufferUntilChar(client, jsonPayload, sizeof(jsonPayload), jsonPayloadLength, '}', TIMEOUT_READ_PAYLOAD);
+
+        if (status != READ_OK) {
+          StockMessage(String("Envoy JSON Reading 3 failed, status= ") + ReadStatusToString(status) + ", partialLen=" + jsonPayloadLength);
+          client.stop();
           return;
         }
-        jsonPayload += "}";
+        jsonPayload[jsonPayloadLength-1] = '}';
         delay(1);
 
         if ((nGlobalIndex == 0) && (nPhaseIndex == 0)) {
@@ -265,7 +495,7 @@ void LectureEnphase() {
             whDlvdCum = ValJson("actEnergyDlvd", jsonPayload);
             whRcvdCum = ValJson("actEnergyRcvd", jsonPayload);
             Frequence = ValJson("freq", jsonPayload);
-
+            
             Tension_M = Tension_M1;
             Intensite_M = Intensite_M1;
             //StockMessage("activePower="+String(PactReseau));
@@ -276,11 +506,20 @@ void LectureEnphase() {
         } else if ((nGlobalIndex == 1) && (nPhaseIndex == 2)) {
           Tension_M3 = ValJson("voltage", jsonPayload);
           Intensite_M3 = ValJson("current", jsonPayload);
-
+          
           bJsonLoadingFinished = true;
 
-          g_nLastGoodReading = millis();
-        }
+          unsigned long nNow = millis();
+          EnvoyDureeDernierJsonParsingMs.add(nNow - nJsonParsingStarted);
+          EnvoyDureeDerniereLectureCompleteMs.add(nNow - nLectureStarted);
+          EnvoyCompteSuccesLectureComplete += 1;
+
+          if(g_nLastGoodReading != 0)
+            EnvoyIntervaleDernieresLecturesCompleteslMs.add(nNow - g_nLastGoodReading);          
+          g_nLastGoodReading = nNow;
+
+
+        }		
       }
     }
   }
@@ -302,11 +541,11 @@ void LectureEnphase() {
       Intensite_M2 = 0.0f;
       Intensite_M3 = 0.0f;
     }
-    //TelnetPrintln("JSON Loading failed");
+	  //TelnetPrintln("JSON Loading failed");
     StockMessage("JSON Loading failed");
-    return;
+	  return;
   }
-
+  
   PactReseau = PfloatMax(PactReseau);
   if (PactReseau < 0) {
     PuissanceS_M_inst = 0;
@@ -351,7 +590,7 @@ void LectureEnphase() {
       Energie_M_Injectee += DeltaWhInjecte;
     }
   }
-
+  
   EnergieActiveValide = true;
   if (PactReseau != 0 || PvaReseau != 0) PuissanceRecue = true;  // Reset du Watchdog à chaque trame reçue de la passerelle Envoy-S metered
   if (cptLEDyellow > 30) cptLEDyellow = 4;
@@ -388,6 +627,43 @@ float ValJson(String nom, String Json) {
     Json = Json.substring(0, p);
     val = Json.toFloat();
   }
+  return val;
+}
+float ValJson(const char* nom, const char* json)
+// version alternative pour éviter les allocations de String et les copies de mémoire
+{
+  if (nom == nullptr || json == nullptr)
+    return 0.0f;
+
+  char key[64];
+
+  int n = snprintf(key, sizeof(key), "\"%s\"", nom);
+  if (n <= 0 || n >= (int)sizeof(key))
+    return 0.0f;
+
+  const char* p = strstr(json, key);
+  if (p == nullptr)
+    return 0.0f;
+
+  p += n;
+
+  while (*p && isspace((unsigned char)*p))
+    p++;
+
+  if (*p != ':')
+    return 0.0f;
+
+  p++;
+
+  while (*p && isspace((unsigned char)*p))
+    p++;
+
+  char* endPtr = nullptr;
+  float val = strtof(p, &endPtr);
+
+  if (endPtr == p)
+    return 0.0f;
+
   return val;
 }
 long LongJson(String nom, String Json) {  // Pour éviter des problèmes d'overflow
