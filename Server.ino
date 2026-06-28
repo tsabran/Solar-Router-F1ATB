@@ -168,8 +168,9 @@ void handleMainJS1() {                  // Code Javascript
   if (nomSondeFixe != "" && (Source_data == "UxIx2" || ((Source_data == "ShellyEm" || Source_data == "ShellyPro") && EnphaseSerial.toInt() != 3))) {
     S = "var biSonde=true;\r\n";
   }
-
-  server.send(200, "text/javascript", S + MainJS1);  // Javascript code
+  server.setContentLength(S.length() + strlen(MainJS1)); // on evite de pré-concaténer S + MainJS1 pour ne pas saturer la RAM
+  server.send(200, "text/javascript", S);
+  server.sendContent(MainJS1, strlen(MainJS1)); // sendContent : streame sans alloc heap
 }
 void handleMainJS2() {  // Code Javascript
   CacheEtClose(300);
@@ -268,21 +269,46 @@ void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
     if (Source_data == "Enphase") {
       S += GS + String(Tension_M) + RS + String(Intensite_M) + RS + String(PuissanceS_M - PuissanceI_M) + RS + String(PowerFactor_M) + RS + String(Energie_M_Soutiree) + RS + String(Energie_M_Injectee);
       S += RS + String(PactProd) + RS + String(PactConso_M);
-      String SessionId = "Not Received from Enphase";
-      if (Session_id != "") {
-        SessionId = "Ok Received from Enphase";
-      }
-      String Token_Enphase = "Not Received from Enphase";
+      String msgTokenEnphase = "Not Received from Enphase";
       if (TokenEnphase.length() > 50) {
-        Token_Enphase = "Ok Received from Enphase";
+        msgTokenEnphase = "Ok Received from Enphase";
+      }
+      String msgEnvoySessionCookie = "Not Received from Envoy or not valid";
+      if (EnvoySessionIdCookie != "") {
+        msgEnvoySessionCookie = "Ok Received from Envoy";
       }
       if (EnphaseUser == "") {
-        SessionId = "Not Requested";
-        Token_Enphase = "Not Requested";
+        msgTokenEnphase = "Not Requested";
+        msgEnvoySessionCookie = "Not Requested";
       }
-      S += RS + SessionId;
 
-      S += RS + Token_Enphase;
+      S += RS + msgTokenEnphase;
+      S += RS + msgEnvoySessionCookie;
+
+      S += RS + "AVG: " + String(EnvoyDureeDerniereConnexionRenouveleeMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereConnexionRenouveleeMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDerniereConnexionReutiliseeMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereConnexionReutiliseeMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDerniereRequeteViaAuthBearerMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereRequeteViaAuthBearerMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDerniereRequeteViaSessionCookieMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereRequeteViaSessionCookieMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDernierJsonParsingMs.avg) + " ms | LAST: " + String(EnvoyDureeDernierJsonParsingMs.last);
+      S += RS + "AVG: " + String(EnvoyDureeDerniereLectureCompleteMs.avg) + " ms | LAST: " + String(EnvoyDureeDerniereLectureCompleteMs.last);
+      S += RS + "AVG: " + String(EnvoyIntervaleDernieresLecturesCompleteslMs.avg) + " ms | LAST: " + String(EnvoyIntervaleDernieresLecturesCompleteslMs.last);
+
+      S += RS + EnvoyCompteTentativesConnexionRenouvelee;
+      S += RS + EnvoyCompteTentativesRequeteAuthBearer;
+      S += RS + EnvoyCompteTentativesLectureComplete;
+      S += RS + EnvoyCompteSuccesLectureComplete;
+      S += RS + EnvoyCompteErreurEchecConnect;
+      S += RS + EnvoyCompteErreurConnectionClosed;
+      S += RS + EnvoyCompteErreurTimeout;
+      if (EnvoyCompteTentativesLectureComplete > 0) {
+        S += RS + String(100.f*EnvoyCompteErreurConnectionClosed/EnvoyCompteTentativesLectureComplete);
+        S += RS + String(100.f*EnvoyCompteErreurTimeout/EnvoyCompteTentativesLectureComplete);
+        S += RS + String(100.f*EnvoyCompteTentativesConnexionRenouvelee/EnvoyCompteTentativesLectureComplete);
+      } else {
+        S += RS + "NA" + RS + "NA" + RS + "NA";
+      }
+      
+
     }
     if (Source_data == "SmartG") {
       S += GS + SG_dataBrute;
@@ -964,14 +990,14 @@ void handleNotFound() {  // Page Web pas trouvé
 void CacheEtClose(int16_t seconde) {
   server.sendHeader("Cache-Control", "max-age=" + String(seconde));
 }
-void lectureCookie(String S) {
+void lectureCookie(const char* S) {
   ExtraitCookie();
-  if (S != "") {
+  if (S != nullptr && S[0] != '\0') {
 
     if (CleAccesRef == CleAcces) {
-      server.send(200, "text/html", S);
+      server.send_P(200, "text/html", S);
     } else {
-      server.send(200, "text/html", ParaCleHtml);  // Demande clé d'acces / mot de passe
+      server.send_P(200, "text/html", ParaCleHtml);  // Demande clé d'acces / mot de passe
     }
   }
 }

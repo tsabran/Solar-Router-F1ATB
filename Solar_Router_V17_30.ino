@@ -678,15 +678,53 @@ String TokenEnphase = "";
 String EnphaseUser = "";
 String EnphasePwd = "";
 String EnphaseSerial = "0";  //Sert égalemnet au Shelly comme numéro de voie
-String JsonToken = "";
-String Session_id = "";
+String EnvoySessionIdCookie = "";  // Cookie `sessionId` renvoyé par l'API Enphase Envoy pour les requêtes authentifiées, reutilisé pour accélerer les appels suivants (~25ms economisés par rapport a Bearer Token)
+unsigned long lastTokenUpdate = 0;  //interval de temps depuis dernier Token Enphase //SR19
+
+
+/** Structure pour calculer une moyenne pondérée des temps en millisecondes.
+    Maintient la derniere valeur reçue et la moyenne pondérée.
+    La moyenne est calculée avec un facteur alpha = 0.01, ce qui signifie que les nouvelles valeurs ont un poids de 1%.
+ */
+struct WeightedStat {
+  unsigned long last = 0;  // Dernière valeur reçue
+  unsigned long avg = 0;   // Moyenne pondérée
+  bool initialized = false; // Indique si la moyenne a été initialisée
+
+  void add(unsigned long v) {
+    last = v;
+    if (!initialized) {
+      avg = v;
+      initialized = true;
+    } else {
+      avg = (avg * 99 + v) / 100; // alpha = 0.01, mise à jour de la moyenne
+    }
+  }
+};
+
+
+// Statistiques sur les temps de réponse et les nombres d'essais liées aux lectures Enphase
+WeightedStat EnvoyDureeDerniereConnexionRenouveleeMs;
+WeightedStat EnvoyDureeDerniereConnexionReutiliseeMs;
+WeightedStat EnvoyDureeDerniereRequeteViaAuthBearerMs;
+WeightedStat EnvoyDureeDerniereRequeteViaSessionCookieMs;
+WeightedStat EnvoyDureeDernierJsonParsingMs;
+WeightedStat EnvoyDureeDerniereLectureCompleteMs;
+WeightedStat EnvoyIntervaleDernieresLecturesCompleteslMs;
+unsigned long EnvoyCompteTentativesConnexionRenouvelee = 0;
+unsigned long EnvoyCompteTentativesRequeteAuthBearer = 0;
+unsigned long EnvoyCompteTentativesLectureComplete = 0;
+unsigned long EnvoyCompteSuccesLectureComplete = 0;
+unsigned long EnvoyCompteErreurTimeout = 0;
+unsigned long EnvoyCompteErreurConnectionClosed = 0;
+unsigned long EnvoyCompteErreurEchecConnect = 0;
+
+// Statistiques d'energie obtenues depuis l'Envoy, pour aff
 long LastwhDlvdCum = 0;             //Dernière valeur cumul Wh Soutire.
 long LastwhRcvdCum = 0;             //Dernière valeur cumul Wh injecté
 float EMI_Wh = 0;                   //Energie entrée Maison Injecté Wh
 float EMS_Wh = 0;                   //Energie entrée Maison Soutirée Wh
-unsigned long lastTokenUpdate = 0;  //interval de temps depuis dernier Token Enphase //SR19
 #define ENPHASE_READING_PERIOD 2000
-void Setup_Enphase(bool NewToken = false);  // MC001 pour gérer Load/Save token Source_Enphase pb déclaration avec paramètre optionnel
 
 //Paramètres for SmartGateways
 String SG_dataBrute = "";
@@ -964,7 +1002,7 @@ void WiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {  //SR19 3.3.6+
   switch (event) {                                              //SR19
 
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:                                                        //SR19
-                                                                                               // password déjà capturé en clair dans WPS_ER_SUCCESS                                       //SR19
+    // password déjà capturé en clair dans WPS_ER_SUCCESS                                       //SR19
       ssid = WiFi.SSID();                                                                      // met à jour le SSID global                                          //SR19
       password = WiFi.psk();                                                                   // met à jour le mot de passe global                               //SR19
       password.trim();                                                                         // supprime espaces et caractères indésirables (dont \n, \r, \t)         //SR19
@@ -993,7 +1031,7 @@ void WiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {  //SR19 3.3.6+
     default:  //SR19
       break;  //SR19
   }           //SR19
-}
+}    
 
 // SETUP
 //*******
@@ -1099,7 +1137,7 @@ print_reset_reason();
   InitTemperature();
 
   ReadFichierParametres();  //On remplace par les paramètres du fichier  qui sera éventuellement crée avec les données en ROM
-
+    
   LectureConsoMatinJour();
 
   TelnetPrintln("Chip Model: " + String(ESP.getChipModel()));
@@ -1232,7 +1270,7 @@ print_reset_reason();
         TelnetPrintln("");
       }
     }
-
+   
     if (WiFi.status() == WL_CONNECTED && ModeReseau < 2) {
       RMS_IP[0] = String2IP(WiFi.localIP().toString());
       StockMessage("Connecté par WiFi, addresse IP : " + WiFi.localIP().toString() + " or <a href='http://" + hostname + ".local' >" + hostname + ".local</a>");
@@ -1240,7 +1278,7 @@ print_reset_reason();
       /*** WPS SETUP ***/      //SR19
       WiFi.mode(WIFI_AP_STA);  //SR19 3.3.6+
       delay(10);               //SR19
-
+      
       if (WiFi.scanNetworks() != 0 && WiFi.RSSI(0) > -83) {      //WPS inutile si aucun signal WiFi > -83dBm  //SR19
         WiFi.disconnect(false, true);                            //RAZ config.                     //SR19
         delay(100);                                              //SR19
@@ -1278,7 +1316,7 @@ print_reset_reason();
         WiFi.softAP(ap_default_ssid, ap_default_psk);
         infoSerieAP();
       }
-      WiFi.scanDelete();
+      WiFi.scanDelete(); 
     }
   }
 
@@ -1397,7 +1435,7 @@ void Task_LectureRMS(void *pvParameters) {
     delay(100);               // pour s'assurer que l'init du port série est ok coté module
     PeriodeProgMillis = 800;  // la première lecture aura lieu 800ms plus tard
     Requete_JSY333();         // requête initiale au module. La première lecture aura lieu PeriodeProgMillis =1000ms plus tard.
-                              // et les données seront déjà toutes dans le buffer de réception
+                               // et les données seront déjà toutes dans le buffer de réception
   }
   for (;;) {
     unsigned long tps = millis();
@@ -1441,11 +1479,9 @@ void Task_LectureRMS(void *pvParameters) {
         }
       }
       if (Source == "Enphase") {
-        uint32_t nReadingDuration = LectureEnphase();
-        if (nReadingDuration > ENPHASE_READING_PERIOD)  // si la lecture de l'Enphase a durée plus de temps que la période de lecture //On s'adapte à la vitesse réponse Envoy-S metered
-          PeriodeProgMillis = nReadingDuration + 500;
-        else
-          PeriodeProgMillis = ENPHASE_READING_PERIOD;
+        LectureEnphase();
+        LastRMS_Millis = millis();
+        PeriodeProgMillis = 300 + ralenti;  //On s'adapte à la vitesse réponse Envoy-S metered
       }
 
       if (Source == "SmartG") {
@@ -1574,13 +1610,13 @@ void loop() {
           tab_histo_2s_ouverture[i][IdxStock2s] = 0;
         }
       }
-
+      
       IdxStock2s = (IdxStock2s + 1) % 300;
       PuisMaxS_T = max(PuisMaxS_T, PuissanceS_T);
       PuisMaxS_M = max(PuisMaxS_M, PuissanceS_M);
       PuisMaxI_T = max(PuisMaxI_T, PuissanceI_T);
       PuisMaxI_M = max(PuisMaxI_M, PuissanceI_M);
-
+      
       JourHeureChange();
       EnergieQuotidienne();
       H_Ouvre_Equivalent(dt);
@@ -1675,7 +1711,7 @@ void loop() {
     } else {  //ESP32 Ethernet
       PrintScroll("IP :" + Ethernet.localIP().toString());
       if (Ethernet.linkStatus() == LinkOFF) {
-
+      
         PrintScroll("Câble Ethernet non connecté.");
         EthernetBug++;
       } else {
@@ -2055,23 +2091,23 @@ void EnergieQuotidienne() {
     }
 
     EnergieJour_M_Soutiree = Energie_M_Soutiree - EAS_M_J0;  // Energie soutirée totale - valeur soutirée à minuit
-
+ 
     if (Energie_M_Injectee < EAI_M_J0 || EAI_M_J0 == 0) {
       EAI_M_J0 = Energie_M_Injectee;
     }
 
     EnergieJour_M_Injectee = Energie_M_Injectee - EAI_M_J0;
-
+ 
     if (Energie_T_Soutiree < EAS_T_J0 || EAS_T_J0 == 0) {
       EAS_T_J0 = Energie_T_Soutiree;
     }
 
     EnergieJour_T_Soutiree = Energie_T_Soutiree - EAS_T_J0;
-
+ 
     if (Energie_T_Injectee < EAI_T_J0 || EAI_T_J0 == 0) {
       EAI_T_J0 = Energie_T_Injectee;
     }
-
+    
     EnergieJour_T_Injectee = Energie_T_Injectee - EAI_T_J0;
   }
 }
