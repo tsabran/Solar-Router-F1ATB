@@ -193,6 +193,8 @@ void handleBruteJS2() {  // Code Javascript
   server.send_P(200, "text/javascript", PageBruteJS2);  // Javascript code
 }
 void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
+  unsigned long _t0 = millis();
+  TelnetPrintln("ajaxRMS debut heap=" + String(esp_get_free_internal_heap_size()));
   String S = "";
   String RMSExtDataB = "";
   int LastIdx = server.arg(0).toInt();
@@ -206,6 +208,7 @@ void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
         StockMessage("connection to ESP_RMS external failed (call from  handleAjaxRMS)");
         clientESP_RMS.stop();
         delay(100);
+        TelnetPrintln("ajaxRMS echec connect " + String(millis()-_t0) + "ms");
         return;
       }
     }
@@ -216,6 +219,7 @@ void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
       if (millis() - timeout > 5000) {
         StockMessage(">>> clientESP_RMS Timeout !");
         clientESP_RMS.stop();
+        TelnetPrintln("ajaxRMS timeout " + String(millis()-_t0) + "ms");
         return;
       }
     }
@@ -327,47 +331,87 @@ void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
     }
   }
 
+  TelnetPrintln("ajaxRMS fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "text/html", S);
 }
 void handleAjaxHisto48h() {  // Envoi Historique de 50h (600points) toutes les 5mn
-  String S = "";
-  String T = "";
-  String U = "";
-  String Ouverture = "";
-  String Pmaxi = String(PuisMaxS_M) + RS + String(PuisMaxI_M) + RS + String(PuisMaxS_T) + RS + String(PuisMaxI_T);
-  int iS = IdxStockPW;
-  for (int i = 0; i < 600; i++) {
-    S += String(tabPw_Maison_5mn[iS]) + ",";
-    T += String(tabPw_Triac_5mn[iS]) + ",";
-    iS = (1 + iS) % 600;
-  }
+  unsigned long _t0 = millis();
+  TelnetPrintln("histo48h debut heap=" + String(esp_get_free_internal_heap_size()));
 
-  for (int canal = 0; canal < 4; canal++) {
-    iS = IdxStockPW;
+  String Pmaxi = String(PuisMaxS_M) + RS + String(PuisMaxI_M) + RS + String(PuisMaxS_T) + RS + String(PuisMaxI_T);
+
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
+  // --- S : puissance maison 5mn (~3Ko) ---
+  {
+    String S;
+    S.reserve(3600);
+    int iS = IdxStockPW;
     for (int i = 0; i < 600; i++) {
-      U += String(float(tabTemperature_5mn[canal][iS]) * 0.1) + ",";
+      S += String(tabPw_Maison_5mn[iS]) + ",";
       iS = (1 + iS) % 600;
     }
-    U += String(temperature[canal]) + "|";
-  }
+    TelnetPrintln("histo48h S=" + String(S.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+    server.sendContent(Pmaxi);
+    server.sendContent(GS);
+    server.sendContent(S);
+  }  // S libérée ici
+
+  // --- T : puissance triac 5mn (~3Ko) ---
+  {
+    String T;
+    T.reserve(3600);
+    int iS = IdxStockPW;
+    for (int i = 0; i < 600; i++) {
+      T += String(tabPw_Triac_5mn[iS]) + ",";
+      iS = (1 + iS) % 600;
+    }
+    TelnetPrintln("histo48h T=" + String(T.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+    server.sendContent(GS);
+    server.sendContent(T);
+  }  // T libérée ici
+
+  // --- U : températures 5mn, canal par canal (~3Ko chacun) ---
+  server.sendContent(GS);
+  {
+    String U;
+    U.reserve(3200);
+    for (int canal = 0; canal < 4; canal++) {
+      U = "";
+      int iS = IdxStockPW;
+      for (int i = 0; i < 600; i++) {
+        U += String(float(tabTemperature_5mn[canal][iS]) * 0.1) + ",";
+        iS = (1 + iS) % 600;
+      }
+      U += String(temperature[canal]) + "|";
+      server.sendContent(U);
+    }
+    TelnetPrintln("histo48h U termine heap=" + String(esp_get_free_internal_heap_size()));
+  }  // U libérée ici
+
+  // --- Ouverture : action par action (~2.5Ko par action active) ---
   for (int i = 0; i < NbActions; i++) {
     if ((LesActions[i].Actif > 0) && (ITmode > 0 || i > 0)) {
-      iS = IdxStockPW;
-      if (LesActions[i].Actif > 0) {
-        Ouverture += GS;
-        for (int j = 0; j < 600; j++) {
-          Ouverture += String(tab_histo_ouverture[i][iS]) + RS;
-          iS = (1 + iS) % 600;
-        }
-        Ouverture += LesActions[i].Titre;
+      String bloc;
+      bloc.reserve(2500);
+      int iS = IdxStockPW;
+      bloc += GS;
+      for (int j = 0; j < 600; j++) {
+        bloc += String(tab_histo_ouverture[i][iS]) + RS;
+        iS = (1 + iS) % 600;
       }
-    }
+      bloc += LesActions[i].Titre;
+      TelnetPrintln("histo48h action" + String(i) + "=" + String(bloc.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+      server.sendContent(bloc);
+    }  // bloc libéré ici
   }
 
-
-  server.send(200, "text/html", Pmaxi + GS + S + GS + T + GS + U + Ouverture);
+  TelnetPrintln("histo48h fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  server.sendContent("");  // terminateur chunked 0\r\n\r\n
 }
 void handleAjaxESP32() {  // Envoi des dernières infos sur l'ESP32
+  unsigned long _t0 = millis();
   IT10ms = 0;
   IT10ms_in = 0;
   String S = "";
@@ -416,12 +460,17 @@ void handleAjaxESP32() {  // Envoi des dernières infos sur l'ESP32
     }
   }
 
+  TelnetPrintln("ajaxESP32 fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "text/html", S);
 }
 void handleAjaxHisto1an() {  
+  unsigned long _t0 = millis();
+  TelnetPrintln("histo1an debut heap=" + String(esp_get_free_internal_heap_size()));
   envoyerHistoriqueEnergie(server);  // envoi direct depuis la fonction qui produit les données
+  TelnetPrintln("histo1an fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
 }
 void handleAjaxData() {  // Données page d'accueil
+  unsigned long _t0 = millis();
   String DateLast = "Attente d'une mise à l'heure par internet";
   if (Horloge == 1)
     DateLast = "Attente d'une mise à l'heure par le Linky";
@@ -456,6 +505,7 @@ void handleAjaxData() {  // Données page d'accueil
 // --- FIN ---
   S += FS + "Fin\r";
 
+  TelnetPrintln("ajaxData fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "text/html", S);
 }
 void handleAjax_etatActions() {
@@ -554,29 +604,63 @@ void handleRestart() {  // Eventuellement Reseter l'ESP32 à distance
 }
 
 void handleAjaxData10mn() {  // Envoi Historique de 10mn (300points)Energie Active Soutiré - Injecté
-  String S = "";
-  String T = "";
-  String Ouverture = "";
-  int iS = IdxStock2s;
-  for (int i = 0; i < 300; i++) {
-    S += String(tabPw_Maison_2s[iS]) + ",";
-    S += String(tabPva_Maison_2s[iS]) + ",";
-    T += String(tabPw_Triac_2s[iS]) + ",";
-    T += String(tabPva_Triac_2s[iS]) + ",";
-    iS = (1 + iS) % 300;
-  }
+  unsigned long _t0 = millis();
+  TelnetPrintln("data10mn debut heap=" + String(esp_get_free_internal_heap_size()));
+
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
+  // --- S : puissance maison 2s (~3Ko) ---
+  {
+    String S;
+    S.reserve(3600);
+    int iS = IdxStock2s;
+    for (int i = 0; i < 300; i++) {
+      S += String(tabPw_Maison_2s[iS]) + ",";
+      S += String(tabPva_Maison_2s[iS]) + ",";
+      iS = (1 + iS) % 300;
+    }
+    TelnetPrintln("data10mn S=" + String(S.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+    server.sendContent(Source_data);
+    server.sendContent(GS);
+    server.sendContent(S);
+  }  // S libérée ici
+
+  // --- T : puissance triac 2s (~3Ko) ---
+  {
+    String T;
+    T.reserve(3600);
+    int iS = IdxStock2s;
+    for (int i = 0; i < 300; i++) {
+      T += String(tabPw_Triac_2s[iS]) + ",";
+      T += String(tabPva_Triac_2s[iS]) + ",";
+      iS = (1 + iS) % 300;
+    }
+    TelnetPrintln("data10mn T=" + String(T.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+    server.sendContent(GS);
+    server.sendContent(T);
+  }  // T libérée ici
+
+  // --- Ouverture : action par action (~1.5Ko par action active) ---
   for (int i = 0; i < NbActions; i++) {
     if (LesActions[i].Actif > 0) {
-      iS = IdxStock2s;
-      Ouverture += GS + String(i) + ES;
+      String bloc;
+      bloc.reserve(1500);
+      int iS = IdxStock2s;
+      bloc += GS;
+      bloc += String(i);
+      bloc += ES;
       for (int j = 0; j < 300; j++) {
-        Ouverture += String(tab_histo_2s_ouverture[i][iS]) + RS;
+        bloc += String(tab_histo_2s_ouverture[i][iS]) + RS;
         iS = (1 + iS) % 300;
       }
-    }
+      TelnetPrintln("data10mn action" + String(i) + "=" + String(bloc.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+      server.sendContent(bloc);
+    }  // bloc libéré ici
   }
 
-  server.send(200, "text/html", Source_data + GS + S + GS + T + Ouverture);
+  TelnetPrintln("data10mn fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  server.sendContent("");  // terminateur chunked 0\r\n\r\n
 }
 void handleAjaxNoms() {
   Liste_NomsEtats(0);  // Les noms de ce routeur
@@ -638,6 +722,8 @@ static const char SECRET_MASK[] = "********";
 static const char *const SECRET_KEYS[] = { "password", "EnphasePwd", "MQTTPwd" };
 
 void handleParaNew() {
+  unsigned long _t0 = millis();
+  TelnetPrintln("paraNew debut heap=" + String(esp_get_free_internal_heap_size()));
   String EtatGpioInitial = String(Fpwm);
   for (int i = 1; i < NbActions; i++) {
     EtatGpioInitial += String(LesActions[i].Gpio) + String(LesActions[i].OutOn) + String(LesActions[i].OutOff);
@@ -679,6 +765,7 @@ void handleParaNew() {
   // Recherche des Noms (routeurs, températures,actions) des RMS partenaires
   IndexSource();
   Liste_des_Noms();
+  TelnetPrintln("paraNew fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
 }
 
 void handleCleUpdate() {
@@ -784,6 +871,8 @@ void handleExport() {
   lectureCookie(ExportHtml);
 }
 void handleExport_file() {
+  unsigned long _t0 = millis();
+  TelnetPrintln("exportFile debut heap=" + String(esp_get_free_internal_heap_size()));
   String S = "";
   String Fichier = server.arg("Fichier");
   if (server.arg("Delete") == "OK") {
@@ -800,9 +889,11 @@ void handleExport_file() {
     server.sendHeader("Content-Disposition", "attachment; filename=\"" + server.arg("download") + "\"");
   }
 
+  TelnetPrintln("exportFile fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "application/json", S);
 }
 void handleListeFile() {
+  unsigned long _t0 = millis();
   String S = "";
   File root = LittleFS.open("/");
   File file = root.openNextFile();
@@ -810,9 +901,11 @@ void handleListeFile() {
     S += file.name() + RS + String(file.size()) + GS;
     file = root.openNextFile();
   }
+  root.close();
   S += FS + String(LittleFS.totalBytes());  // Espace total
   S += FS + String(LittleFS.usedBytes());   // Espace utilisé
 
+  TelnetPrintln("listeFile fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "text/javascript", S);
 }
 void handleAP_ScanWifi() {
@@ -1053,47 +1146,58 @@ class ChunkedWriter : public Print {
 };
 
 void envoyerHistoriqueEnergie(WebServer &serverRef) {
-  JsonDocument doc;
-
-  // //Vue par jour/mois Soutiré et Injecté (LittleFS)
+  // Streaming JSON sans JsonDocument ni copie de socket :
+  //  - pas d'allocation ArduinoJson (~90 entrées supprimées du heap)
+  //  - sendContent() natif WebServer au lieu du ChunkedWriter sur raw NetworkClient
+  //  - esp_task_wdt_reset() dans la boucle pour éviter le watchdog sur gros fichiers
   int M0 = DateAMJ.substring(4, 6).toInt();
   int an0 = DateAMJ.substring(0, 4).toInt();
+
+  serverRef.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  serverRef.send(200, "application/json", "");
+  serverRef.sendContent("{\"EnergieJour\":[");
+
+  bool firstEntry = true;
   String ligne;
-  ligne.reserve(64);
+  ligne.reserve(80);
+  String buf;
+  // Seuil 2800 o : TCP slow start commence à 1 MSS (1460 o). Un batch de 2800 o couvre
+  // 2 MSS consécutifs — lwIP peut les envoyer sans attendre l'ACK du premier si la
+  // fenêtre le permet. Résultat : ~10 sendContent() au lieu de 370.
+  buf.reserve(3000);
 
   for (int M = -2; M <= 0; M++) {
     int M1 = M0 + M;
     int an1 = an0;
     if (M1 < 1) { M1 += 12; an1--; }
-    
+
     char fileName[32];
     snprintf(fileName, sizeof(fileName), "/Mois_Wh_%04d%02d.csv", an1, M1);
 
     if (LittleFS.exists(fileName)) {
       File file = LittleFS.open(fileName, "r");
       while (file.available()) {
+        esp_task_wdt_reset();  // évite le watchdog sur fichiers de 30+ lignes
         ligne = file.readStringUntil('\n');
         ligne.trim();
         if (ligne.length() > 10 && ligne.indexOf("Date,") == -1) {
-          doc["EnergieJour"].add(ligne);
+          if (!firstEntry) buf += ',';
+          buf += '"';
+          buf += ligne;
+          buf += '"';
+          firstEntry = false;
+          if (buf.length() >= 2800) {
+            serverRef.sendContent(buf);
+            buf = "";  // remet length=0, conserve l'allocation de 3000 octets
+          }
         }
       }
       file.close();
     }
   }
 
-  if (doc["EnergieJour"].isNull()) doc["EnergieJour"] = "";
-
-  serverRef.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  serverRef.sendHeader("Transfer-Encoding", "chunked");
-  serverRef.send(200, "application/json", ""); 
-
-  NetworkClient client = serverRef.client(); 
-  ChunkedWriter writer(client);
-  
-  // Sérialisation directe
-  serializeJson(doc, writer);
-
-  //envoie le marqueur "0"
-  writer.finalise();
+  if (buf.length() > 0) serverRef.sendContent(buf);  // flush le reste
+  // firstEntry==true → aucune donnée (DateAMJ invalide ou fichiers absents) → tableau vide []
+  serverRef.sendContent("]}");
+  serverRef.sendContent("");  // terminateur chunked 0\r\n\r\n
 }
