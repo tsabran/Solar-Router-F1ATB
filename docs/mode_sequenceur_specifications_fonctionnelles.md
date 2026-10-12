@@ -58,7 +58,7 @@ un SSR Demi-Sinus. Surproduction solaire variable de 0 à 3000 W.
 | 300 W (10 %) | R1=10%, R2=10%, R3=10% | R1=30%,  R2=0%, R3=0% | **3 :** tension basse (THD élevée) |
 | 1000 W (33 %) | R1=33%, R2=33%, R3=33% | R1=100%, R2=0%, R3=0% | **1 :** tension normale (THD basse) |
 | 1500 W (50 %) | R1=50%, R2=50%, R3=50% | R1=100%, R2=50%, R3=0% | **1 :** tension normale (THD basse) |
-| 2000 W (67 %) | R1=67%, R2=67%, R3=67% | R1=100%, R2=100%, R3=33% | **1 :** tension normale (THD basse) |
+| 2000 W (67 %) | R1=67%, R2=67%, R3=67% | R1=100%, R2=100%, R3=0% | **0 :** pleine puissance des deux premières charges |
 | 3000 W (100 %) | R1=100%, R2=100%, R3=100% | R1=100%, R2=100%, R3=100% | **0 :** pleine puissance (optimal) |
 
 **Observation critique :** 
@@ -148,7 +148,7 @@ Retard_r     = round((1 - ouverture_r) × 100)   [valeur ISR pour le SSR]
 
 ```
 t = 0.0  →  R1=0%   R2=0%   R3=0%    (rien ouvert)
-t = 0.3  →  R1=100% R2=0%   R3=0%    (relais 1 monte seul)
+t = 0.3  →  R1=90%  R2=0%   R3=0%    (relais 1 monte seul)
 t = 0.5  →  R1=100% R2=50%  R3=0%    (relais 2 monte seul)
 t = 0.8  →  R1=100% R2=100% R3=40%   (relais 3 monte seul)
 t = 1.0  →  R1=100% R2=100% R3=100%  (tous ouverts)
@@ -157,6 +157,16 @@ t = 1.0  →  R1=100% R2=100% R3=100%  (tous ouverts)
 **Propriété clé :** À tout instant, la **puissance totale délivrée = t × Wtotal**,
 exactement comme si le PID pilotait une charge unique de `Wtotal` watts.
 La précision de régulation en puissance est identique au pilotage classique.
+
+Les relais inactifs sont exclus de la puissance totale. Les forçages locaux
+restent prioritaires et peuvent rompre la propriété « un seul relais partiel ».
+L'ouverture affichée du groupe est alors recalculée depuis les ouvertures
+effectives pondérées, sans remplacer l'intégrateur du PID.
+
+Une référence de parent invalide, désactivé ou imbriqué coupe le relais et
+produit un diagnostic une fois par incident. Le Triac (action 0) ne peut être
+ni parent ni enfant. Les ouvertures forcées sont bornées à 0–100 % avant
+d'utiliser les tables ISR.
 
 ### 4.4 Charges de puissances différentes (hétérogènes)
 
@@ -191,10 +201,11 @@ Deux nouveaux champs JSON par action dans `parametres.json` :
 ```json
 {
   "Actions": [
+    { "Actif": 0, "Titre": "Triac", "IdxSequenceur": -1, "PuissanceCharge": 0 },
     { "Actif": 6, "Titre": "Groupe ECS", "IdxSequenceur": -1, "PuissanceCharge": 0 },
-    { "Actif": 5, "Titre": "ECS Phase 1", "IdxSequenceur": 0, "PuissanceCharge": 1000 },
-    { "Actif": 5, "Titre": "ECS Phase 2", "IdxSequenceur": 0, "PuissanceCharge": 1000 },
-    { "Actif": 5, "Titre": "ECS Phase 3", "IdxSequenceur": 0, "PuissanceCharge": 1000 }
+    { "Actif": 5, "Titre": "ECS Phase 1", "IdxSequenceur": 1, "PuissanceCharge": 1000 },
+    { "Actif": 5, "Titre": "ECS Phase 2", "IdxSequenceur": 1, "PuissanceCharge": 1000 },
+    { "Actif": 5, "Titre": "ECS Phase 3", "IdxSequenceur": 1, "PuissanceCharge": 1000 }
   ]
 }
 ```
@@ -202,6 +213,10 @@ Deux nouveaux champs JSON par action dans `parametres.json` :
 **Compatibilité ascendante :** les deux clés sont optionnelles à la lecture. Un fichier
 `parametres.json` existant (sans ces clés) est chargé sans erreur ; les valeurs par
 défaut (`-1` et `0`) correspondent au comportement classique d'une action indépendante.
+
+Lorsqu'une action est supprimée dans l'interface, les indices de parent sont
+réindexés avec les actions conservées. Les enfants d'un parent supprimé sont
+détachés (`IdxSequenceur = -1`), jamais rattachés à l'action qui prend sa place.
 
 ---
 

@@ -1780,7 +1780,17 @@ void AppliquerRetard(int idx) {
   }
 }
 
+bool RelaisSequenceValide(int idx) {
+  int parent = LesActions[idx].IdxSequenceur;
+  return idx > 0 && LesActions[idx].Actif != MODE_INACTIF
+    && LesActions[idx].Actif != MODE_SEQUENCEUR
+    && parent > 0 && parent < NbActions && parent != idx
+    && LesActions[parent].Actif == MODE_SEQUENCEUR
+    && LesActions[parent].IdxSequenceur == -1;
+}
+
 void GestionOverproduction() {  // chaque 200ms (adaptation 5 fois par seconde)
+  static bool erreurSequenceur[LES_ACTIONS_LENGTH] = {};
   float SeuilPw, ErrorPw = 0, Derive = 0;
   float MaxTriacPw;
   float Kp, Ki, Kd;
@@ -1797,7 +1807,19 @@ void GestionOverproduction() {  // chaque 200ms (adaptation 5 fois par seconde)
   for (int i = 0; i < NbActions; i++) {
     Actif[i] = LesActions[i].Actif;                                                                                //0=Inactif,1=Decoupe ou On/Off, 2=Multi, 3= Train , 4=PWM, 5=Demi-Sinus
     if (Actif[i] == MODE_MULTISINUS || Actif[i] == MODE_TRAINSINUS || Actif[i] == MODE_DEMISINUS) lissage = true;  //En RAM
-    if (LesActions[i].IdxSequenceur >= 0) continue;  // Relais séquencé : skip PID, géré par la passe de distribution
+    if (LesActions[i].IdxSequenceur != -1 || (i == 0 && Actif[i] == MODE_SEQUENCEUR)) {
+      if (!RelaisSequenceValide(i)) {
+        if (!erreurSequenceur[i]) StockMessage("Sequenceur invalide : arret action " + String(i));
+        erreurSequenceur[i] = true;
+        RetardF[i] = IntegrErrorPw[i] = 100.0f;
+        Retard[i] = 100;
+        AppliquerRetard(i);
+      } else {
+        erreurSequenceur[i] = false;
+      }
+      continue;
+    }
+    erreurSequenceur[i] = false;
     forceOff = false;
 
     LeCanalTemp = LesActions[i].CanalTempEnCours(HeureCouranteDeci);
@@ -1817,7 +1839,7 @@ void GestionOverproduction() {  // chaque 200ms (adaptation 5 fois par seconde)
       SeuilPw = float(P.Vmin);
       MaxTriacPw = float(P.Vmax);
       if (P.Type == 2) {                  //ON
-        RetardF[i] = 100.0 - MaxTriacPw;  //On avec ouverture limitée en forcé prioritaire ou suivant la période
+        RetardF[i] = constrain(100.0f - MaxTriacPw, 0.0f, 100.0f);  //On avec ouverture limitée en forcé prioritaire ou suivant la période
       } else {                            // régulation 3 (PW) ou 4 (Triac)
 
         //Coef Integral ou réactivité
@@ -1871,15 +1893,15 @@ void GestionOverproduction() {  // chaque 200ms (adaptation 5 fois par seconde)
   // temps CPU, négligeable face au PID float (~5 µs/action) et au stack WiFi (>> 100 µs).
   // Un cache nécessiterait +400 octets de RAM et un mécanisme d'invalidation sur
   // chaque sauvegarde de paramètres — complexité disproportionnée au gain.
-  for (int iSeq = 0; iSeq < NbActions; iSeq++) {
-    if (LesActions[iSeq].Actif != MODE_SEQUENCEUR) continue;
+  for (int iSeq = 1; iSeq < NbActions; iSeq++) {
+    if (LesActions[iSeq].Actif != MODE_SEQUENCEUR || LesActions[iSeq].IdxSequenceur != -1) continue;
     // Collecter les relais gérés et la puissance totale du groupe
     int idxRelaisGeres[LES_ACTIONS_LENGTH];
     int puissRelais[LES_ACTIONS_LENGTH];
     int nbRelaisGeres = 0;
-    int puissTotale = 0;
+    float puissTotale = 0.0f;
     for (int j = 0; j < NbActions; j++) {
-      if (LesActions[j].IdxSequenceur == iSeq) {
+      if (LesActions[j].IdxSequenceur == iSeq && RelaisSequenceValide(j)) {
         idxRelaisGeres[nbRelaisGeres] = j;
         int p = (LesActions[j].PuissanceCharge > 0) ? LesActions[j].PuissanceCharge : 1000;
         puissRelais[nbRelaisGeres] = p;
@@ -1902,14 +1924,14 @@ void GestionOverproduction() {  // chaque 200ms (adaptation 5 fois par seconde)
 
       // Forçage local d'un relais séquencé : prioritaire sur la distribution du séquenceur parent.
       if (LesActions[j].tOnOff > 0) {
-        RetardF[j] = 100.0f - float(LesActions[j].ForceOuvre);  // Force On avec ouverture limitée
+        RetardF[j] = constrain(100.0f - float(LesActions[j].ForceOuvre), 0.0f, 100.0f);  // Force On avec ouverture limitée
       } else if (LesActions[j].tOnOff < 0) {
         RetardF[j] = 100.0f;  // Force Off
       }
 
       Retard[j] = round(RetardF[j]);
       if (RetardVx == j) {  //Affiche calcul distribution des retards port série ou Telnet
-        char buffer[80];
+        char buffer[160];
         snprintf(buffer, sizeof(buffer),
           "[relais %d <- seq %d]  GroupeOuv= %.2f%%  SeuilDemarrage= %.2f%%  FractionGroupe= %.2f%%  RelaisOuv= %.2f%%  Retard= %d",
           j, iSeq,

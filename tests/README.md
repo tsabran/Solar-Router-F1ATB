@@ -25,7 +25,7 @@ tests/
 │   ├── test_enphase_parser.cpp     # Tests unitaires (JSON, calculs, compteurs, filtres, erreurs)
 │   └── test_enphase_simulation.cpp # Simulation dynamique d'une journée complète (pilotage Triac)
 ├── main_tests.cpp                  # Point d'entrée du runner C++
-└── run-tests.sh                    # Script de compilation et d'exécution rapide (< 1s)
+└── run-tests.sh                    # Compilation C++, préparation et tests JavaScript
 ```
 
 ## 🚀 Lancer les tests
@@ -39,7 +39,44 @@ tests/
 
 # Filtrer uniquement la simulation dynamique d'une journée
 ./tests/run-tests.sh Simulation
+
+# Logique réelle du séquenceur (C++) et configuration web (JavaScript)
+./tests/run-tests.sh Sequenceur
+./tests/run-tests.sh SequenceurUI
 ```
+
+Prérequis : Bash et un compilateur C++17 (`clang++` ou `g++`). Les tests
+JavaScript du séquenceur utilisent Node.js et ses modules intégrés, sans npm.
+
+## Séquenceur : tests du firmware réel
+
+La branche `feature/mode-sequenceur` ajoute `tests/sequenceur/` :
+
+- `prepare-tests.sh` extrait les fonctions actuelles `AppliquerRetard`,
+  `RelaisSequenceValide`, `GestionOverproduction`, les modes et les tables
+  Multi-Sinus du sketch dans `tests/.build/`. Une extraction incomplète échoue.
+- `test_sequenceur.cpp` compile ces fonctions et le véritable `Actions.cpp`.
+  Seuls le temps, le réseau et les sorties matérielles sont simulés.
+- `test_sequenceur_ui.js` exécute les quatre blocs JavaScript de `JS_Actions.h`
+  dans une VM Node.js, avec un DOM minimal et capture des requêtes de sauvegarde.
+
+Les 19 cas C++ couvrent les demandes 0–100 %, les charges homogènes/hétérogènes,
+les puissances par défaut, les groupes indépendants, la capacité maximale,
+les forçages, la moyenne pondérée réelle, les modes de sortie, les conditions du
+parent, PID/CACSI, les changements de configuration et les références invalides.
+La simulation en boucle fermée appelle le vrai régulateur toutes les 200 ms
+avec une mesure réseau renouvelée toutes les 2 s : après chaque palier de
+production/consommation, l'écart à la cible reste inférieur à 1 W après 60 s.
+La propriété staircase et la conservation de puissance sont vérifiées à chaque
+itération, hors forçages qui peuvent volontairement rompre la staircase.
+
+Les 8 cas JavaScript vérifient les valeurs par défaut, l'affichage, la sauvegarde
+d'un séquenceur sans GPIO et la conservation des liens après suppression d'actions.
+
+Limites : ces tests ne mesurent ni les harmoniques, ni le timing réel des ISR,
+ni le comportement électrique des SSR. La sauvegarde HTTP est capturée, mais
+la persistance complète sur ESP32 et la lecture réseau Enphase doivent encore
+être vérifiées sur matériel ou dans leurs suites dédiées.
 
 ## ☀️ Ce qui est vérifié en mode Enphase
 
@@ -79,3 +116,9 @@ Pour ajouter les tests d'une autre feature (ex: `sequenceur`, `linky`, `shelly`)
 2. Créez votre fichier `test_<nom_feature>.cpp`.
 3. Utilisez la macro `TEST_CASE(NomSuite, NomTest) { ... ASSERT_EQ(...) }`.
 4. `./tests/run-tests.sh` découvrira et exécutera automatiquement vos nouveaux tests !
+
+Si nécessaire, un fichier `prepare-tests.sh` reçoit la racine du projet et le
+dossier de build comme arguments ; il doit échouer explicitement si sa préparation
+échoue. Les sous-dossiers `stubs/` sont ajoutés au chemin d'inclusion C++.
+Les fichiers `test_*.js` sont également découverts ; ils reçoivent le filtre de
+suite en premier argument et doivent retourner un code non nul en cas d'échec.

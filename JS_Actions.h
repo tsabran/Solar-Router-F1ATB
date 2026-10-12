@@ -122,7 +122,7 @@ function TracePlanning(iAct) {
 
     // Panneau relais séquencé : sélecteur de séquenceur parent + puissance nominale
     let optionsSequenceur = "<option value='-1'>— aucun —</option>";
-    for (let m = 0; m < F.Actions.length; m++) {
+    for (let m = 1; m < F.Actions.length; m++) {
         if (m !== iAct && F.Actions[m].Actif === 6) {
             optionsSequenceur += "<option value='" + m + "'>" + (F.Actions[m].Titre || ("Action " + m)) + "</option>";
         }
@@ -890,12 +890,12 @@ function checkDisabled() {
         show(`groupeSequenceur${iAct}`, estSequenceur ? "flex" : "none"); // Affiche le bloc informatif Séquenceur de relais uniquement si mode Séquenceur sélectionné
 
         const sequenceursExistants = [];  // Liste des index des actions configurées en mode Séquenceur (pour alimenter le select de choix du relais séquenceur)
-        for (let m = 0; m < F.Actions.length; m++) {
+        for (let m = 1; m < F.Actions.length; m++) {
             const r6m = GID(`radio${m}-6`);
             if (r6m && r6m.checked) sequenceursExistants.push(m);
         }
         // Affiche le choix de relais séquenceur uniquement si au moins un séquenceur existe et que le mode Séquenceur n'est pas sélectionné (un séquenceur ne peut pas être relais d'un autre séquenceur) et que le mode On/Off simple n'est pas sélectionné (pas de relais séquenceur possible en mode On/Off simple)
-        const peutEtreRelaisSequence = (sequenceursExistants.length > 0 && !estSequenceur && !estOnOff && iAct > 0);
+        const peutEtreRelaisSequence = (sequenceursExistants.length > 0 && estActif && !estSequenceur && !estOnOff && iAct > 0);
         show(`relaisSequence${iAct}`, peutEtreRelaisSequence ? "flex" : "none");
 
         const selectSequenceur = GID(`selectSequenceur${iAct}`);
@@ -914,12 +914,11 @@ function checkDisabled() {
                 // Si le relais ne peut plus etre séquencé, on force la valeur à -1 (aucun) et on met à jour F.Actions pour éviter d'avoir un index de séquenceur non valide
                 selectSequenceur.value = "-1";
             } else {
-                // Sinon, on restaure la sélection précédente si elle est toujours valide (sinon le navigateur mettra automatiquement la valeur à -1 qui correspond à "aucun")
-                const savedVal = selectSequenceur.value;
+                const savedVal = parseInt(selectSequenceur.value, 10);
                 selectSequenceur.innerHTML = opts;
-                selectSequenceur.value = savedVal;  // restaure la sélection (-> -1 si le séquenceur a disparu)
-                selectSequenceur.value = selectSequenceur.value; // forcer le bon display affichée en cas de restauration à -1
+                selectSequenceur.value = sequenceursExistants.includes(savedVal) ? savedVal : -1;
             }
+            F.Actions[iAct].IdxSequenceur = parseInt(selectSequenceur.value, 10);
         }
         
         const estRelaisSequence = (selectSequenceur && selectSequenceur.value != "-1"); // Relais séquencée (=séquenceur parent sélectionné) -> désactive les options de periodes/regulation/visu
@@ -1115,8 +1114,10 @@ function Send_Values(){
     
     // 2. Effacement des Actions inutilisées
     let j=0 ;
+    const nouveauxIndices = new Map();
     for (let iAct = 0; iAct < F.Actions.length; iAct++) {
         if (F.Actions[iAct].Actif >= 0) { // N'envoie que les actions valides ou actives
+            nouveauxIndices.set(iAct, j);
             if(j!=iAct) F.Actions[j]=F.Actions[iAct];
             F.Actions[j].Action=j;
             j++;
@@ -1124,6 +1125,12 @@ function Send_Values(){
     }
     
     F.Actions=F.Actions.slice(0,j);
+    for (let iAct = 0; iAct < F.Actions.length; iAct++) {
+        const action = F.Actions[iAct];
+        const parent = nouveauxIndices.get(action.IdxSequenceur);
+        const parentValide = parent > 0 && parent !== iAct && F.Actions[parent].Actif === 6;
+        action.IdxSequenceur = iAct > 0 && action.Actif > 1 && action.Actif < 6 && parentValide ? parent : -1;
+    }
    
     // 3. Récupération des paramètres globaux
     F.Fpwm = document.querySelector('input[name="Fpwm"]:checked').value;
