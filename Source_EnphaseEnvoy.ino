@@ -133,6 +133,39 @@ void Setup_Enphase() {
 }
 
 
+// Delai minimum entre deux demandes de token hors renouvellement periodique
+// (chaque demande = 2 connexions TLS bloquantes vers Enlighten)
+constexpr uint32_t TOKEN_RETRY_MS = 5UL * 60UL * 1000UL;
+
+// Le Setup_Enphase() du boot compte comme une tentative (s_lastTry = 0)
+bool EnphaseTokenRetryAllowed() {
+  static unsigned long s_lastTry = 0;
+  if ((millis() - s_lastTry) < TOKEN_RETRY_MS) return false;
+  s_lastTry = millis();
+  return true;
+}
+
+void RenouvelleTokenEnphase() {
+  String previousToken = TokenEnphase;
+  TokenEnphase = "";
+  Setup_Enphase();
+  if (TokenEnphase.length() > 50) {
+    lastTokenUpdate = millis();  // repart pour 30 jours
+    EnvoySessionIdCookie = "";
+    StockMessage("Enphase token renewed");
+  } else {
+    TokenEnphase = previousToken;
+    StockMessage("Enphase token renewal failed, next attempt in 5 min");
+  }
+}
+
+// "HTTP/1.1 401 Unauthorized" -> 401, 0 si non reconnu
+int HttpStatusCode(const char* statusLine) {
+  const char* p = strstr(statusLine, "HTTP/");
+  if (!p) return 0;
+  p = strchr(p, ' ');
+  return p ? atoi(p + 1) : 0;
+}
 
 enum ReadStatus
 {
@@ -306,6 +339,13 @@ void LectureEnphase()
   static NetworkClientSecure client;
 
   constexpr uint32_t TOKEN_REFRESH_MS = 30UL * 24UL * 60UL * 60UL * 1000UL;
+
+  // Token absent (ex: Enlighten injoignable au boot) : on retente periodiquement
+  if (TokenEnphase.length() <= 50 && EnphaseUser != "" && EnphasePwd != "" && EnphaseTokenRetryAllowed()) {
+    StockMessage("Enphase token missing, requesting a new one...");
+    RenouvelleTokenEnphase();
+  }
+
   if (TokenEnphase.length() > 50 && EnphaseUser != "") 
   {  
     // Connexion pour firmware V7 en https
@@ -415,6 +455,17 @@ void LectureEnphase()
         EnvoySessionIdCookie = "";
 	      StockMessage("Envoy SessionId not valid anymore, retrying with Auth Bearer...");
         continue;  //retry on next loop with auth bearer
+      }
+
+      int httpCode = HttpStatusCode(statusLine);
+      if (!bUseCookie && (httpCode == 401 || httpCode == 403)) {
+        // token refusé (expiré/révoqué) : on en redemande un, au plus toutes les TOKEN_RETRY_MS
+        client.stop();
+        if (EnphaseTokenRetryAllowed()) {
+          StockMessage(String("Envoy rejected token (HTTP ") + httpCode + "), requesting a new one...");
+          RenouvelleTokenEnphase();
+        }
+        return;  //retry on next LectureEnphase() call
       }
 
       if(!strstr(statusLine, "200")) {
