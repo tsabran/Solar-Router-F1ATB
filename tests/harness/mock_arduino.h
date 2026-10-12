@@ -62,6 +62,7 @@ private:
 public:
     String() : _data("") {}
     String(const char* s) : _data(s ? s : "") {}
+    String(const char* s, unsigned int length) : _data(s ? std::string(s, length) : "") {}
     String(const std::string& s) : _data(s) {}
     String(char c) : _data(1, c) {}
     String(int v) : _data(std::to_string(v)) {}
@@ -93,6 +94,7 @@ public:
     }
 
     size_t length() const { return _data.length(); }
+    bool reserve(unsigned int size) { _data.reserve(size); return true; }
     const char* c_str() const { return _data.c_str(); }
 
     void toCharArray(char* buffer, size_t size) const {
