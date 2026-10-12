@@ -72,7 +72,7 @@ Routeur photovoltaïque basé sur **ESP32**, permettant d’optimiser l’autoco
 
 ## 🔧 Installation
 
-> Compilation en ligne de commande, traçabilité des builds, flash et OTA : voir [README_BUILD.md](README_BUILD.md).
+> Compilation en ligne de commande, traçabilité des builds, flash et OTA : voir [tools/README.md](tools/README.md).
 
 1. **Cloner le dépôt**
    ```bash

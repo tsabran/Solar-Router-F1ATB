@@ -2,14 +2,15 @@
 # Merge a list of branches on top of a base in a temporary clone, then build and archive
 # the firmware with build-binary.sh. Local branches and working trees are never modified.
 #
-# The tooling (this script, build-binary.sh, merge-branches.conf, sketch.yaml) comes from the
-# directory of this script; the sources come from --workdir (default: current directory).
+# The tooling (tools/, sketch.yaml) comes from the checkout of this script; the sources come from --workdir (default: current directory).
 # A feature branch therefore does not need to contain the build scripts.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=tools/build-lib.sh
-source "$SCRIPT_DIR/tools/build-lib.sh"
+# shellcheck source=lib/build-lib.sh
+source "$SCRIPT_DIR/lib/build-lib.sh"
+# Sketch root of the tooling checkout (sketch.yaml, default sources).
+SKETCH_DIR="$(dirname "$SCRIPT_DIR")"
 
 usage() {
   cat <<USAGE
@@ -84,7 +85,7 @@ done
 # Source repository and output locations
 # ---------------------------------------------------------------------------
 if [[ -z "$WORK_DIR" ]]; then
-  if git -C "$PWD" rev-parse --git-dir >/dev/null 2>&1; then WORK_DIR="$PWD"; else WORK_DIR="$SCRIPT_DIR"; fi
+  if git -C "$PWD" rev-parse --git-dir >/dev/null 2>&1; then WORK_DIR="$PWD"; else WORK_DIR="$SKETCH_DIR"; fi
 fi
 REPO_ROOT="$(git -C "$WORK_DIR" rev-parse --show-toplevel 2>/dev/null)" || die "Not a git repository: $WORK_DIR"
 SR_ROOT="$(sr_output_root "$REPO_ROOT")"
@@ -196,7 +197,7 @@ fi
 TOOLS_SHA="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
 TOOLS_BRANCH="$(git -C "$SCRIPT_DIR" branch --show-current 2>/dev/null || true)"
 TOOLS_DIRTY=false
-if [[ -n "$(git -C "$SCRIPT_DIR" status --porcelain -- merge-and-build.sh build-binary.sh tools sketch.yaml merge-branches.conf 2>/dev/null)" ]]; then
+if [[ -n "$(git -C "$SCRIPT_DIR" status --porcelain -- "$SCRIPT_DIR" "$SKETCH_DIR/sketch.yaml" 2>/dev/null)" ]]; then
   TOOLS_DIRTY=true
   log WARN "Tooling has uncommitted changes (recorded in the manifest)"
 fi

@@ -1,8 +1,8 @@
 # Copy to flash.conf in the main worktree (not versioned) and adapt.
 # Read by flash.sh (KEY=value, not sourced). Command-line arguments take precedence.
 
-# Router address for ./flash.sh --ota (IP or hostname, optional :port)
+# Router address for tools/flash.sh --ota (IP or hostname, optional :port)
 OTA_HOST=192.168.1.50
 
-# USB serial port for ./flash.sh --serial (optional; default: auto-detect)
+# USB serial port for tools/flash.sh --serial (optional; default: auto-detect)
 #SERIAL_PORT=/dev/cu.usbserial-0001

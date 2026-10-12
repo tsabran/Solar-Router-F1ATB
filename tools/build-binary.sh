@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Compile the firmware with arduino-cli and archive the binaries with a manifest.
 #
-# The sources (--workdir) and the tooling (this script, tools/, sketch.yaml) are independent:
+# The sources (--workdir) and the tooling (tools/, sketch.yaml) are independent:
 # any branch or worktree can be built with the tooling of the build-automation branch.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=tools/build-lib.sh
-source "$SCRIPT_DIR/tools/build-lib.sh"
+# shellcheck source=lib/build-lib.sh
+source "$SCRIPT_DIR/lib/build-lib.sh"
+# Sketch root of the tooling checkout (sketch.yaml, default sources).
+SKETCH_DIR="$(dirname "$SCRIPT_DIR")"
 
 usage() {
   cat <<'USAGE'
@@ -53,7 +55,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$WORK_DIR" ]]; then
-  if [[ -n "$(sr_find_main_ino "$PWD")" ]]; then WORK_DIR="$PWD"; else WORK_DIR="$SCRIPT_DIR"; fi
+  if [[ -n "$(sr_find_main_ino "$PWD")" ]]; then WORK_DIR="$PWD"; else WORK_DIR="$SKETCH_DIR"; fi
 fi
 WORK_DIR="$(sr_abspath "$WORK_DIR")" || die "Work directory does not exist: $WORK_DIR"
 
@@ -164,9 +166,9 @@ BUILD_GIT_SHA="${BUILD_GIT_SHA:-unknown}"
 FQBN="${FQBN:-esp32:esp32:esp32:PartitionScheme=custom}"
 PROFILE_ARGS=()
 if [[ "$USE_PROFILE" -eq 1 ]]; then
-  if [[ ! -f "$STAGE_DIR/sketch.yaml" && -f "$SCRIPT_DIR/sketch.yaml" ]]; then
-    cp "$SCRIPT_DIR/sketch.yaml" "$STAGE_DIR/sketch.yaml"
-    log INFO "sketch.yaml taken from tooling: $SCRIPT_DIR/sketch.yaml"
+  if [[ ! -f "$STAGE_DIR/sketch.yaml" && -f "$SKETCH_DIR/sketch.yaml" ]]; then
+    cp "$SKETCH_DIR/sketch.yaml" "$STAGE_DIR/sketch.yaml"
+    log INFO "sketch.yaml taken from tooling: $SKETCH_DIR/sketch.yaml"
   fi
   if [[ -f "$STAGE_DIR/sketch.yaml" ]]; then
     [[ -n "$PROFILE" ]] || PROFILE="$(sed -n 's/^default_profile:[[:space:]]*//p' "$STAGE_DIR/sketch.yaml" | tr -d '"'\''[:space:]')"
@@ -275,7 +277,7 @@ fi
 
 manifest_args=()
 for a in "${ARTIFACTS[@]}"; do manifest_args+=(--artifact "$a"); done
-python3 "$SCRIPT_DIR/tools/write-manifest.py" \
+python3 "$SCRIPT_DIR/lib/write-manifest.py" \
   --out "$RELEASE_DIR/manifest.txt" \
   --compile-json "$COMPILE_JSON" \
   --stage-dir "$STAGE_DIR" \

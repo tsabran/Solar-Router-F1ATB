@@ -3,8 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=tools/build-lib.sh
-source "$SCRIPT_DIR/tools/build-lib.sh"
+# shellcheck source=lib/build-lib.sh
+source "$SCRIPT_DIR/lib/build-lib.sh"
 
 usage() {
   cat <<'USAGE'
@@ -32,7 +32,7 @@ The SHA-256 of the firmware is checked against SHA256SUMS before flashing.
 Each real flash is logged in RELEASE/flash-<time>-<mode>-<target>.log and summarized
 (before/after version, result) in releases/DEPLOYMENTS.log.
 
-Config: flash.conf in the main worktree (not versioned, see flash.conf.example), or
+Config: flash.conf in the main worktree (not versioned, see tools/flash.conf.example), or
 SR_FLASH_CONF. Keys: OTA_HOST, SERIAL_PORT.
 Environment: SR_OUTPUT_ROOT (default: main worktree of this repository).
 USAGE
@@ -77,7 +77,7 @@ conf_get() {
 }
 if [[ "$MODE" == ota && -z "$HOST" ]]; then
   HOST="$(conf_get OTA_HOST)"
-  [[ -n "$HOST" ]] || die "--ota: no HOST given and no OTA_HOST in $FLASH_CONF (see flash.conf.example)"
+  [[ -n "$HOST" ]] || die "--ota: no HOST given and no OTA_HOST in $FLASH_CONF (see tools/flash.conf.example)"
 fi
 if [[ "$MODE" == serial && -z "$PORT" ]]; then
   PORT="$(conf_get SERIAL_PORT)"

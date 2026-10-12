@@ -4,15 +4,23 @@ Outillage en ligne de commande (macOS/Linux) pour compiler le firmware avec `ard
 assembler des branches dans un clone temporaire, archiver chaque binaire avec un manifeste
 et le flasher par USB ou par OTA.
 
+Tout l'outillage est dans `tools/` ; les commandes ci-dessous se lancent depuis la racine
+du sketch (elles fonctionnent aussi depuis n'importe quel répertoire du dépôt).
+
 | Fichier | Rôle |
 |---------|------|
-| `merge-and-build.sh` | Clone temporaire, merges, compilation, archivage, `refs/builds/<tag>` |
-| `build-binary.sh` | Compilation d'un répertoire de sources et archivage dans `releases/` |
-| `flash.sh` | Flash série (esptool) ou OTA web (`/update`) d'une release archivée |
-| `merge-branches.conf` | Liste ordonnée des branches à merger |
-| `sketch.yaml` | Profil arduino-cli : plateforme et bibliothèques figées |
-| `tools/build-lib.sh`, `tools/write-manifest.py` | Fonctions communes, génération du manifeste |
+| `tools/merge-and-build.sh` | Clone temporaire, merges, compilation, archivage, `refs/builds/<tag>` |
+| `tools/build-binary.sh` | Compilation d'un répertoire de sources et archivage dans `releases/` |
+| `tools/flash.sh` | Flash série (esptool) ou OTA web (`/update`) d'une release archivée |
+| `tools/merge-branches.conf` | Liste ordonnée des branches à merger |
+| `tools/flash.conf.example` | Modèle de configuration locale de `flash.sh` |
+| `tools/lib/` | Fonctions communes (`build-lib.sh`), génération du manifeste (`write-manifest.py`) |
+| `sketch.yaml` | Profil arduino-cli : plateforme et bibliothèques figées (reste à la racine du sketch) |
 | `partitions.csv` | Table de partitions (« Partition Scheme → Custom » dans l'IDE) |
+
+Fichiers locaux, non versionnés, à la racine du worktree principal : `releases/` (binaires,
+manifestes, logs, `DEPLOYMENTS.log`), `flash.conf` (cibles de flash) et `.tmp-build/`
+(répertoire de travail temporaire).
 
 ## Installation de la toolchain
 
@@ -48,9 +56,9 @@ Mise à jour des versions : modifier `sketch.yaml` (et la liste ci-dessus) dans 
 ## Compiler
 
 ```bash
-./build-binary.sh                       # sources du répertoire courant, profil esp32
-BUILD_TAG=test ./build-binary.sh        # tag affiché dans la version
-./build-binary.sh --no-profile          # core/bibliothèques globaux et $FQBN
+tools/build-binary.sh                       # sources du répertoire courant, profil esp32
+BUILD_TAG=test tools/build-binary.sh        # tag affiché dans la version
+tools/build-binary.sh --no-profile          # core/bibliothèques globaux et $FQBN
 ```
 
 FQBN : `esp32:esp32:esp32:PartitionScheme=custom`. Le script vérifie que le binaire tient
@@ -72,15 +80,15 @@ modifie ni les branches ni le working tree.
 | localrelease | `--localrelease` | `origin/main` après `git fetch origin main` |
 | quelconque | `--base REF` | branche, tag ou commit, sans modifications locales |
 
-Les branches de `merge-branches.conf` (ou passées en arguments, qui remplacent le fichier)
+Les branches de `tools/merge-branches.conf` (ou passées en arguments, qui remplacent le fichier)
 sont ensuite mergées dans l'ordre, en `--no-ff`, par SHA résolu au démarrage.
 
 ```bash
-./merge-and-build.sh --list-branches              # branches locales, sélectionnées ou non
-./merge-and-build.sh --dry-run                    # teste les merges sans compiler
-./merge-and-build.sh                              # localdev + config
-./merge-and-build.sh --base enphase-envoy-fix build-automation ota-improve
-./merge-and-build.sh --localdev --localrelease    # deux builds
+tools/merge-and-build.sh --list-branches              # branches locales, sélectionnées ou non
+tools/merge-and-build.sh --dry-run                    # teste les merges sans compiler
+tools/merge-and-build.sh                              # localdev + config
+tools/merge-and-build.sh --base enphase-envoy-fix build-automation ota-improve
+tools/merge-and-build.sh --localdev --localrelease    # deux builds
 ```
 
 En cas de conflit, le script liste les fichiers en conflit, annule le merge et s'arrête
@@ -155,14 +163,14 @@ Sans argument de release, la plus récente de `releases/` est utilisée. Le SHA-
 contre `SHA256SUMS` et une confirmation est demandée (`--yes` pour l'omettre).
 
 ```bash
-./flash.sh --serial --dry-run                    # affiche la commande esptool
-./flash.sh --serial /dev/cu.usbserial-0001       # flash USB
-./flash.sh --ota 192.168.1.50 Solar_Router_V17_25_localdev-20261012-163206
-./flash.sh --ota                                 # cible = OTA_HOST de flash.conf
+tools/flash.sh --serial --dry-run                    # affiche la commande esptool
+tools/flash.sh --serial /dev/cu.usbserial-0001       # flash USB
+tools/flash.sh --ota 192.168.1.50 Solar_Router_V17_25_localdev-20261012-163206
+tools/flash.sh --ota                                 # cible = OTA_HOST de flash.conf
 ```
 
 **Configuration** : `flash.conf` à la racine du worktree principal (ignoré par git, modèle
-`flash.conf.example`, autre chemin via `SR_FLASH_CONF`) fournit les cibles par défaut :
+`tools/flash.conf.example`, autre chemin via `SR_FLASH_CONF`) fournit les cibles par défaut :
 `OTA_HOST=192.168.1.50` et, optionnel, `SERIAL_PORT=/dev/cu.usbserial-0001`. Le fichier
 est lu (pas sourcé) ; une cible passée en argument est prioritaire.
 
