@@ -15,9 +15,10 @@ Usage:
 RELEASE is a release directory, its name, or its .ino.bin (default: latest in releases/).
 The SHA-256 of the firmware is checked against SHA256SUMS before flashing.
 
-  --serial [PORT]  USB flash with esptool, same layout as the Arduino IDE:
-                   bootloader 0x1000, partitions 0x8000, boot_app0 0xe000, app 0x10000.
-                   NVS (WiFi) and LittleFS (router configuration) are preserved.
+  --serial [PORT]  USB flash with esptool: boot_app0 at 0xe000 (boot from app0) and the app
+                   at 0x10000. NVS (WiFi) and LittleFS (router configuration) are preserved.
+                   The board must already have the custom partition table (any router
+                   firmware >= 14.02); for a blank board, upload once from the Arduino IDE.
                    PORT defaults to the only /dev/cu.usbserial*|SLAB*|wchusbserial*|usbmodem* port.
   --ota HOST       POST the app to http://HOST/update (router web OTA), then wait for the
                    router to come back and check that its version shows the BUILD_TAG.
@@ -102,9 +103,7 @@ confirm() {
 # Serial
 # ---------------------------------------------------------------------------
 flash_serial() {
-  local boot="$RELEASE/$ARTIFACT.ino.bootloader.bin" parts="$RELEASE/$ARTIFACT.ino.partitions.bin"
   local platform_dir boot_app0 esptool
-  [[ -f "$boot" && -f "$parts" ]] || die "Bootloader/partitions images missing in $RELEASE"
 
   platform_dir="$(awk '/^  board_platform:/{f=1} f && /install_dir:/{gsub(/.*install_dir: "|"$/, ""); print; exit}' "$MANIFEST" 2>/dev/null || true)"
   boot_app0="$platform_dir/tools/partitions/boot_app0.bin"
@@ -132,7 +131,7 @@ flash_serial() {
 
   local cmd=("$esptool" --chip esp32 --port "$PORT" --baud "$BAUD" --before default-reset --after hard-reset
     write-flash -z --flash-mode keep --flash-freq keep --flash-size keep
-    0x1000 "$boot" 0x8000 "$parts" 0xe000 "$boot_app0" 0x10000 "$APP_BIN")
+    0xe000 "$boot_app0" 0x10000 "$APP_BIN")
   log INFO "Port:      $PORT"
   if [[ "$DRY_RUN" -eq 1 ]]; then
     printf '%b+ %s%b\n' "$C_CMD" "${cmd[*]}" "$C_RESET"

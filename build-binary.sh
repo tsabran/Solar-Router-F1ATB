@@ -15,7 +15,7 @@ Usage:
   build-binary.sh [options] [MAIN_INO_FILE]
 
 Compiles the sketch found in the work directory and archives the result in
-releases/<Sketch>_<BUILD_TAG>/ (firmware, elf, bootloader, partitions, merged image,
+releases/<Sketch>_<BUILD_TAG>/ (app firmware .bin, .elf.gz for crash decoding,
 manifest.txt, worktree.patch, build.log, SHA256SUMS).
 
 Options:
@@ -256,17 +256,18 @@ fi
 # ---------------------------------------------------------------------------
 # Archive
 # ---------------------------------------------------------------------------
-rm -rf "$OUT_DIR"
-mkdir -p "$OUT_DIR" "$RELEASE_DIR"
-cp "$TMP_ROOT/out/"* "$OUT_DIR/"
+mkdir -p "$RELEASE_DIR"
 
 ARTIFACTS=()
-for ext in bin elf bootloader.bin partitions.bin merged.bin; do
-  src="$TMP_ROOT/out/$MAIN_INO.$ext"
-  [[ -f "$src" ]] || continue
-  cp "$src" "$RELEASE_DIR/$ARTIFACT.ino.$ext"
-  ARTIFACTS+=("$ARTIFACT.ino.$ext")
-done
+# Bootloader, partition table and merged image are not archived: they only depend on the
+# platform and partitions.csv, and flashing the merged image would erase the configuration.
+cp "$BIN_FILE" "$RELEASE_DIR/$ARTIFACT.ino.bin"
+ARTIFACTS+=("$ARTIFACT.ino.bin")
+# The exact .elf is required to decode crash backtraces/coredumps of this firmware.
+if [[ -f "$TMP_ROOT/out/$MAIN_INO.elf" ]]; then
+  gzip -9 -c "$TMP_ROOT/out/$MAIN_INO.elf" > "$RELEASE_DIR/$ARTIFACT.ino.elf.gz"
+  ARTIFACTS+=("$ARTIFACT.ino.elf.gz")
+fi
 if [[ -n "$SOURCE_PATCH" && -s "$SOURCE_PATCH" ]]; then
   cp "$SOURCE_PATCH" "$RELEASE_DIR/worktree.patch"
   ARTIFACTS+=(worktree.patch)

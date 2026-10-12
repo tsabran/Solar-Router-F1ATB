@@ -109,18 +109,20 @@ dans le clone, le staging ni le patch archivé, même s'ils ne sont pas ignorés
 
 ## Traçabilité
 
-Tout est écrit sous la racine du worktree principal (`SR_OUTPUT_ROOT`), ignorée par git :
+Les releases sont écrites sous la racine du worktree principal (`SR_OUTPUT_ROOT`), dans
+`releases/`, ignoré par git. Les fichiers de travail (clone, copie des sources, compilation,
+logs en cours) vont dans `.tmp-build/` et sont supprimés en fin de run ; après un échec,
+la sortie console contient tout le diagnostic.
 
 ```
 releases/Solar_Router_V17_25_localdev-20261012-163206/
-  Solar_Router_V17_25_localdev-20261012-163206.ino.bin      # app (flash/OTA)
-  ….ino.elf, ….ino.bootloader.bin, ….ino.partitions.bin, ….ino.merged.bin
+  Solar_Router_V17_25_localdev-20261012-163206.ino.bin      # firmware (OTA / flash)
+  Solar_Router_V17_25_localdev-20261012-163206.ino.elf.gz   # symboles, pour décoder un crash
   manifest.txt          # date, tag, base, merges, toolchain, bibliothèques, SHA-256
   worktree.patch        # modifications locales incluses (localdev)
   build.log             # sortie arduino-cli
   merge-and-build.log   # merges + compilation
   SHA256SUMS
-logs/merge-and-build_<timestamp>.log
 ```
 
 Le manifeste contient la date, `BUILD_TAG`, le SHA de la base, la liste ordonnée des
@@ -156,8 +158,9 @@ contre `SHA256SUMS` et une confirmation est demandée (`--yes` pour l'omettre).
 ./flash.sh --ota 192.168.1.50 Solar_Router_V17_25_localdev-20261012-163206
 ```
 
-- **Série** : écrit bootloader (0x1000), partitions (0x8000), `boot_app0` (0xE000) et app
-  (0x10000), comme l'IDE. NVS (WiFi) et LittleFS (configuration du routeur) sont conservés.
-  Ne pas flasher `….merged.bin` à 0x0 : cette image de 4 Mo écrase toute la flash, configuration comprise.
+- **Série** : écrit `boot_app0` (0xE000, démarrage sur app0) et l'app (0x10000). NVS (WiFi)
+  et LittleFS (configuration du routeur) sont conservés. La carte doit déjà avoir la table
+  de partitions Custom (tout routeur en version ≥ 14.02) ; pour une carte vierge, faire un
+  premier téléversement depuis l'IDE Arduino (Partition Scheme → Custom).
 - **OTA** : envoie l'app sur `http://<ip>/update` (page « Mise à jour » du routeur), attend
   le redémarrage puis vérifie que `/ParaFixe` renvoie une version contenant le `BUILD_TAG`.
