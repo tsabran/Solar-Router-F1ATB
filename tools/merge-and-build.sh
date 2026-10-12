@@ -30,6 +30,7 @@ Options:
                     versioned, see tools/merge-branches.conf.example; or SR_MERGE_CONF)
   --no-merge        Build the base only (ignore config and arguments)
   --dry-run         Resolve refs and test the merges in a temporary clone, without compiling
+  --no-test         Skip running native tests (tests/run-tests.sh)
   --keep-clone      Keep the temporary clone in .tmp-build/ for inspection
   --no-ref          Do not save the merged tree as refs/builds/<tag> in the repository
   --no-fetch        --localrelease: use the current origin/main without fetching
@@ -57,6 +58,7 @@ WORK_DIR=""
 CONFIG_FILE="${SR_MERGE_CONF:-}"
 NO_MERGE=0
 DRY_RUN=0
+RUN_TESTS=1
 KEEP_CLONE=0
 SAVE_REF=1
 DO_FETCH=1
@@ -70,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --config) [[ -n "${2:-}" ]] || die "--config requires a file"; CONFIG_FILE="$2"; shift 2 ;;
     --no-merge) NO_MERGE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --no-test) RUN_TESTS=0; shift ;;
     --keep-clone) KEEP_CLONE=1; shift ;;
     --no-ref) SAVE_REF=0; shift ;;
     --no-fetch) DO_FETCH=0; shift ;;
@@ -353,6 +356,27 @@ run_build() {
     log OK "$tag: dry run OK, would build commit $build_sha"
     cat "$section"
     return 0
+  fi
+
+  if [[ "$RUN_TESTS" -eq 1 ]]; then
+    local test_runner=""
+    if [[ -x "$clone/tests/run-tests.sh" ]]; then
+      test_runner="$clone/tests/run-tests.sh"
+    elif [[ -x "$SCRIPT_DIR/../tests/run-tests.sh" ]]; then
+      test_runner="$SCRIPT_DIR/../tests/run-tests.sh"
+    fi
+
+    if [[ -n "$test_runner" ]]; then
+      log INFO "Running native test suite..."
+      if ! (cd "$clone" && "$test_runner"); then
+        log FAIL "$tag: test suite failed"
+        FAILED_MODES+=("$tag")
+        return 1
+      fi
+      log OK "Native test suite passed"
+    else
+      log INFO "No test runner found (skipping tests)"
+    fi
   fi
 
   local result_file="$tmp/result" release_dir
