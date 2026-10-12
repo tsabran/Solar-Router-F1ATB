@@ -11,3 +11,6 @@ releases/
 .enphase_token_cache.json
 *.token
 .env
+
+# Local deployment settings (see flash.conf.example)
+flash.conf

@@ -123,6 +123,8 @@ releases/Solar_Router_V17_25_localdev-20261012-163206/
   build.log             # sortie arduino-cli
   merge-and-build.log   # merges + compilation
   SHA256SUMS
+  flash-<date>-<mode>-<cible>.log   # un log par déploiement (flash.sh)
+releases/DEPLOYMENTS.log            # historique : une ligne par déploiement
 ```
 
 Le manifeste contient la date, `BUILD_TAG`, le SHA de la base, la liste ordonnée des
@@ -156,6 +158,24 @@ contre `SHA256SUMS` et une confirmation est demandée (`--yes` pour l'omettre).
 ./flash.sh --serial --dry-run                    # affiche la commande esptool
 ./flash.sh --serial /dev/cu.usbserial-0001       # flash USB
 ./flash.sh --ota 192.168.1.50 Solar_Router_V17_25_localdev-20261012-163206
+./flash.sh --ota                                 # cible = OTA_HOST de flash.conf
+```
+
+**Configuration** : `flash.conf` à la racine du worktree principal (ignoré par git, modèle
+`flash.conf.example`, autre chemin via `SR_FLASH_CONF`) fournit les cibles par défaut :
+`OTA_HOST=192.168.1.50` et, optionnel, `SERIAL_PORT=/dev/cu.usbserial-0001`. Le fichier
+est lu (pas sourcé) ; une cible passée en argument est prioritaire.
+
+**Historique** : chaque déploiement réel (hors `--dry-run`, et seulement une fois confirmé)
+écrit la sortie complète dans `<release>/flash-<date>-<mode>-<cible>.log` et ajoute une ligne
+tabulée à `releases/DEPLOYMENTS.log` :
+
+```
+<date ISO>  OK|FAIL  ota|serial  <cible>  before=<version>  after=<version>  release=…  sha256=…  log=…
+```
+
+```bash
+column -ts$'\t' releases/DEPLOYMENTS.log        # quel firmware tourne où, depuis quand
 ```
 
 - **Série** : écrit `boot_app0` (0xE000, démarrage sur app0) et l'app (0x10000). NVS (WiFi)
