@@ -15,6 +15,14 @@ BUILD_DIR="$SCRIPT_DIR/.build"
 mkdir -p "$BUILD_DIR"
 BIN="$BUILD_DIR/solar_router_tests"
 
+INCLUDES=(-I"$SCRIPT_DIR" -I"$BUILD_DIR")
+while IFS= read -r prepare; do
+    bash "$prepare" "$PROJECT_ROOT" "$BUILD_DIR"
+done < <(find "$SCRIPT_DIR" -type f -name prepare-tests.sh | sort)
+while IFS= read -r stubs; do
+    INCLUDES+=("-I$stubs")
+done < <(find "$SCRIPT_DIR" -type d -name stubs | sort)
+
 echo "🔨 Compilation de la suite de tests ($CXX)..."
 
 # Recherche de tous les fichiers .cpp de tests
@@ -24,10 +32,14 @@ while IFS= read -r f; do
 done < <(find "$SCRIPT_DIR" -type f -name "test_*.cpp")
 
 "$CXX" -std=c++17 -Wall -Wextra -O2 \
-    -I"$SCRIPT_DIR" \
+    "${INCLUDES[@]}" \
     "${SRCS[@]}" \
     -o "$BIN"
 
 echo "🚀 Lancement de la batterie de tests..."
 cd "$PROJECT_ROOT"
 "$BIN" "$@"
+
+while IFS= read -r test; do
+    node "$test" "$@"
+done < <(find "$SCRIPT_DIR" -type f -name 'test_*.js' | sort)

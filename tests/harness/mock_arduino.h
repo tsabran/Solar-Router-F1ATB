@@ -82,6 +82,13 @@ public:
     size_t length() const { return _data.length(); }
     const char* c_str() const { return _data.c_str(); }
 
+    void toCharArray(char* buffer, size_t size) const {
+        if (size == 0) return;
+        const size_t count = std::min(size - 1, _data.size());
+        std::memcpy(buffer, _data.data(), count);
+        buffer[count] = '\0';
+    }
+
     int indexOf(const String& s, int fromIndex = 0) const {
         if (fromIndex < 0) fromIndex = 0;
         size_t pos = _data.find(s._data, (size_t)fromIndex);
