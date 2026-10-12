@@ -306,6 +306,15 @@ arduino-cli compile --fqbn esp32:esp32:esp32 \
 
 Validation historique avant ce rebase : coeur ESP32 3.3.7, ArduinoJson 7.4.3, tests avec ASan/UBSan,
 syntaxe des quatre scripts Actions embarques et `git diff --check` passes.
+
+Validation apres rebase sur le sequenceur teste : **74/74 cas** passent.
+Les **62 cas C++** passent aussi avec ASan/UBSan et `NDEBUG`, sans desactiver
+les assertions du harness. La compilation locale avec le coeur ESP32 3.3.7
+reussit : programme de 1 909 919 octets, RAM statique de 96 840 octets.
+Le fichier applicatif fait **1 910 064 / 1 945 600 octets** (98 %), soit
+**35 536 octets libres**. Aucun upload n'a ete effectue.
+
+Les chiffres de comparaison ci-dessous proviennent des validations anterieures :
 Apres extraction du point d'observation commun, les deux branches et leur
 fusion simulee compilent :
 
