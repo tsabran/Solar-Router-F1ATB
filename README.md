@@ -72,6 +72,8 @@ Routeur photovoltaïque basé sur **ESP32**, permettant d’optimiser l’autoco
 
 ## 🔧 Installation
 
+> Compilation en ligne de commande, traçabilité des builds, flash et OTA : voir [README_BUILD.md](README_BUILD.md).
+
 1. **Cloner le dépôt**
    ```bash
    git clone https://github.com/F1ATB/Solar-Router-F1ATB.git
