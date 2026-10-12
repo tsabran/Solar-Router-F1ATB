@@ -1,6 +1,15 @@
 .DS_Store
 .vscode
-build
+
+# Build outputs (see README_BUILD.md)
+build/
+.tmp-build/
+releases/
+logs/
 build-binary.log
 *.ino.bin
 
+# Secrets: never commit
+.enphase_token_cache.json
+*.token
+.env
