@@ -78,6 +78,19 @@ public:
         snprintf(buf, sizeof(buf), "%.2f", v);
         _data = buf;
     }
+    String(double v, unsigned int decimals) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%.*f", int(decimals), v);
+        _data = buf;
+    }
+    size_t write(uint8_t value) {
+        _data.push_back(char(value));
+        return 1;
+    }
+    size_t write(const uint8_t* data, size_t size) {
+        _data.append(reinterpret_cast<const char*>(data), size);
+        return size;
+    }
 
     size_t length() const { return _data.length(); }
     const char* c_str() const { return _data.c_str(); }

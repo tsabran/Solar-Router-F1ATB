@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runner de tests C++ natifs pour Solar-Router-F1ATB
-# Compile et exécute la batterie de tests en local sans aucune dépendance externe.
+# Compile et execute les tests avec les dependances firmware installees.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -16,9 +16,14 @@ mkdir -p "$BUILD_DIR"
 BIN="$BUILD_DIR/solar_router_tests"
 
 INCLUDES=(-I"$SCRIPT_DIR" -I"$BUILD_DIR")
+: > "$BUILD_DIR/include-paths.txt"
 while IFS= read -r prepare; do
-    bash "$prepare" "$PROJECT_ROOT" "$BUILD_DIR"
+    bash "$prepare" "$PROJECT_ROOT" "$BUILD_DIR" >> "$BUILD_DIR/include-paths.txt"
 done < <(find "$SCRIPT_DIR" -type f -name prepare-tests.sh | sort)
+while IFS= read -r include; do
+    [[ -d "$include" ]] || { echo "Invalid test include directory: $include" >&2; exit 1; }
+    INCLUDES+=("-I$include")
+done < "$BUILD_DIR/include-paths.txt"
 while IFS= read -r stubs; do
     INCLUDES+=("-I$stubs")
 done < <(find "$SCRIPT_DIR" -type d -name stubs | sort)

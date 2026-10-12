@@ -2,6 +2,14 @@
 
 Batterie de tests automatisés et environnement de simulation pour le Solar Router F1ATB.
 
+Les scripts `tests/<feature>/prepare-tests.sh` recoivent la racine du projet
+et le dossier `tests/.build/`. Ils peuvent produire des fichiers d'inclusion
+et emettre des dossiers d'inclusion supplementaires sur stdout (un par ligne).
+Les diagnostics vont sur stderr et tout echec arrete le runner. Les dependances
+firmware deja installees sont reutilisees sans telechargement automatique.
+Les dossiers `stubs/` servent aux inclusions C++ ; les fichiers `test_*.js`
+sont executes avec Node.js et recoivent le filtre de suite en premier argument.
+
 ## 📂 Structure
 
 ```text
