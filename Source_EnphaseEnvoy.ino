@@ -2,10 +2,45 @@
 //* Source EnPhase V7   			*
 //***********************************
 
-#include "EnvoyReadObserver.h"
+#include "EnvoyEnergySample.h"
 
 uint32_t ipToInt(IPAddress ip) {                                                                  //SR19
   return uint32_t(ip[0] << 24) | uint32_t(ip[1] << 16) | uint32_t(ip[2] << 8) | uint32_t(ip[3]);  //SR19
+}
+
+int HttpStatusCode(const char* statusLine);
+
+bool ReadEnphaseCloudResponse(NetworkClientSecure& client, String& body) {
+  String response;
+  const unsigned long started = millis();
+  while (client.connected() || client.available()) {
+    while (client.available()) {
+      if (response.length() >= 4096) {
+        StockMessage("Enphase cloud response too long");
+        client.stop();
+        return false;
+      }
+      response += char(client.read());
+    }
+    if ((millis() - started) >= 5000) {
+      StockMessage("Enphase cloud response timeout");
+      client.stop();
+      return false;
+    }
+    yield();
+  }
+  client.stop();
+  int separator = response.indexOf("\r\n\r\n");
+  int statusEnd = response.indexOf("\r\n");
+  int codeStart = response.indexOf(' ');
+  if (strncmp(response.c_str(), "HTTP/", 5) != 0 || separator < 0 || statusEnd < 0 ||
+      codeStart < 0 || codeStart >= statusEnd ||
+      HttpStatusCode(response.c_str()) != 200) {
+    StockMessage("Enphase cloud invalid HTTP response");
+    return false;
+  }
+  body = response.substring(separator + 4);
+  return true;
 }
 
 void Setup_Enphase() {
@@ -52,25 +87,14 @@ void Setup_Enphase() {
       clientSecu.println("Host: " + Host);
       clientSecu.println("Connection: close");
       clientSecu.println();
-      String line = "";
-      while (clientSecu.connected()) {
-        line = clientSecu.readStringUntil('\n');
-        if (line == "\r") {
-          TelnetPrintln("headers 1 Enlighten received");
-          JsonToken = "";
-        }
-
-        JsonToken += line;
-      }
-      // if there are incoming bytes available
-      // from the server, read them and print them:
-      while (clientSecu.available()) {
-        char c = clientSecu.read();
-        Serial.write(c);
-      }
-      clientSecu.stop();
+      if (!ReadEnphaseCloudResponse(clientSecu, JsonToken)) return;
     }
-    Session_id = StringJson("session_id", JsonToken);
+    JsonDocument session;
+    if (deserializeJson(session, JsonToken.c_str()) || !session["session_id"].is<const char*>()) {
+      StockMessage("Enphase cloud invalid session JSON");
+      return;
+    }
+    Session_id = session["session_id"].as<const char*>();
     TelnetPrintln("session_id :" + Session_id);
 	  StockMessage("session_id :" + Session_id);
   } 
@@ -98,24 +122,7 @@ void Setup_Enphase() {
       clientSecu.println(requestBody);
       clientSecu.println();
       TelnetPrintln("Attente user est connecté");
-      String line = "";
-      JsonToken = "";
-      while (clientSecu.connected()) {
-        line = clientSecu.readStringUntil('\n');
-        if (line == "\r") {
-          TelnetPrintln("headers 2 enlighten received");
-          JsonToken = "";
-        }
-
-        JsonToken += line;
-      }
-      // if there are incoming bytes available
-      // from the server, read them and print them:
-      while (clientSecu.available()) {
-        char c = clientSecu.read();
-        Serial.write(c);
-      }
-      clientSecu.stop();
+      if (!ReadEnphaseCloudResponse(clientSecu, JsonToken)) return;
       JsonToken.trim();
       TelnetPrintln("Token :" + JsonToken);
       //StockMessage("Token :" + JsonToken);
@@ -139,8 +146,8 @@ constexpr uint32_t TOKEN_RETRY_MS = 5UL * 60UL * 1000UL;
 
 // Le Setup_Enphase() du boot compte comme une tentative (s_lastTry = 0)
 bool EnphaseTokenRetryAllowed() {
-  static unsigned long s_lastTry = 0;
-  if ((millis() - s_lastTry) < TOKEN_RETRY_MS) return false;
+  static uint32_t s_lastTry = 0;
+  if (uint32_t(millis() - s_lastTry) < TOKEN_RETRY_MS) return false;
   s_lastTry = millis();
   return true;
 }
@@ -161,10 +168,14 @@ void RenouvelleTokenEnphase() {
 
 // "HTTP/1.1 401 Unauthorized" -> 401, 0 si non reconnu
 int HttpStatusCode(const char* statusLine) {
+  if (!statusLine) return 0;
   const char* p = strstr(statusLine, "HTTP/");
   if (!p) return 0;
   p = strchr(p, ' ');
-  return p ? atoi(p + 1) : 0;
+  if (!p || strlen(p) < 4 || !isdigit((unsigned char)p[1]) ||
+      !isdigit((unsigned char)p[2]) || !isdigit((unsigned char)p[3]) ||
+      (p[4] && p[4] != ' ' && p[4] != '\r')) return 0;
+  return atoi(p + 1);
 }
 
 enum ReadStatus
@@ -203,13 +214,16 @@ int ReadBufferUntilChar(  // Précedemment appelé JSONReadingEnphase
     char untilChar,
     unsigned long timeoutMs)
 {
-  if (maxSize == 0) return READ_INVALID_ARGUMENT;
-
   outLen = 0;
+  if (out == nullptr || maxSize == 0) {
+    StockMessage("Envoy read buffer invalid");
+    return READ_INVALID_ARGUMENT;
+  }
+
   out[0] = '\0';
 
   const size_t maxLen = maxSize - 1;
-  unsigned long lastActivity = millis();
+  uint32_t lastActivity = millis();
 
   while (true) {
     while (stream.available() > 0) {
@@ -237,7 +251,7 @@ int ReadBufferUntilChar(  // Précedemment appelé JSONReadingEnphase
       return READ_DISCONNECTED;
     }
 
-    if ((unsigned long)(millis() - lastActivity) >= timeoutMs) {
+    if (uint32_t(millis() - lastActivity) >= timeoutMs) {
       out[outLen] = '\0';
       EnvoyCompteErreurTimeout += 1;
       return READ_TIMEOUT;
@@ -288,7 +302,7 @@ bool CaptureEnvoySessionIdFromHeaders(NetworkClientSecure& pClient, unsigned lon
     if (httpHeaderLength == 0)
       return false; //all headers have been read
 
-    if (strncmp(httpHeaderBuf, "Set-Cookie:", 11) == 0) {
+    if (strncasecmp(httpHeaderBuf, "Set-Cookie:", 11) == 0) {
       const char* p = strstr(httpHeaderBuf, "sessionId=");
       if (p) {
         p += 10; // strlen("sessionId=")
@@ -303,7 +317,46 @@ bool CaptureEnvoySessionIdFromHeaders(NetworkClientSecure& pClient, unsigned lon
   }
 }
 
-void LectureEnphase() 
+bool EnvoyPayloadPrefixValide(const char* payload, const char* prefix) {
+  while (*payload && *payload != '{') {
+    if (!isspace((unsigned char)*payload)) {
+      if (*payload != *prefix || !*prefix) return false;
+      ++prefix;
+    }
+    ++payload;
+  }
+  return *payload == '{' && !*prefix;
+}
+
+bool EnvoyPayloadValide(const char* payload, bool header, bool power, bool grid) {
+  static char headerJson[1024];
+  if (header) {
+    if (!EnvoyReadingHeaderJson(payload, headerJson, sizeof(headerJson))) return false;
+    payload = headerJson;
+  } else {
+    payload = strchr(payload, '{');
+    if (!payload) return false;
+  }
+  JsonDocument document;
+  if (deserializeJson(document, payload) || !document.is<JsonObject>()) return false;
+  const char* fields[] = {"activePower", "apparentPower", "voltage", "current",
+                          "freq", "actEnergyDlvd", "actEnergyRcvd"};
+  for (const char* field : fields) {
+    JsonVariantConst value = document[field];
+    if (!value.isNull() && (!value.is<double>() || !std::isfinite(value.as<double>()) ||
+                           !std::isfinite(float(value.as<double>()))))
+      return false;
+    if ((strcmp(field, "actEnergyDlvd") == 0 || strcmp(field, "actEnergyRcvd") == 0) &&
+        !value.isNull() && (value.as<double>() < 0 || value.as<double>() > INT32_MAX))
+      return false;
+    if ((grid || (power && strcmp(field, "activePower") == 0) ||
+         (header && strcmp(field, "voltage") == 0)) && !value.is<double>())
+      return false;
+  }
+  return true;
+}
+
+void LectureEnphase()
 {
   #define TIMEOUT_READ_PAYLOAD    100
   #define TIMEOUT_WAITING_ANSWER  500
@@ -311,8 +364,23 @@ void LectureEnphase()
 
   EnvoyCompteTentativesLectureComplete += 1;
   // init variable 
-  static unsigned long g_nLastGoodReading = millis();
+  static uint32_t g_nLastGoodReading = millis();
   bool bJsonLoadingFinished = false;
+  // Tous les chemins de sortie, y compris les erreurs reseau, appliquent la securite.
+  struct ReadingGuard {
+    uint32_t& lastGood;
+    bool& complete;
+    ~ReadingGuard() {
+      if (complete || uint32_t(millis() - lastGood) <= 10000) return;
+      PactProd = PactConso_M = Tension_M = Intensite_M = Frequence = PowerFactor_M = 0;
+      Tension_M1 = Tension_M2 = Tension_M3 = Intensite_M1 = Intensite_M2 = Intensite_M3 = 0;
+      PuissanceS_M_inst = PuissanceI_M_inst = PVAS_M_inst = PVAI_M_inst = 0;
+      PuissanceS_M = PuissanceI_M = PVAS_M = PVAI_M = 0;
+      Puissance_M_moy = PVA_M_moy = 0;
+      Pva_valide = EnergieActiveValide = PuissanceRecue = false;
+      StockMessage("Envoy watchdog: no valid reading for 10 s, powers cleared");
+    }
+  } readingGuard{g_nLastGoodReading, bJsonLoadingFinished};
 
   float PactReseau = 0.0f;
   float PvaReseau = 0.0f;
@@ -350,10 +418,9 @@ void LectureEnphase()
   {  
     // Connexion pour firmware V7 en https
     
-    if ((millis() - lastTokenUpdate) > TOKEN_REFRESH_MS) 
+    if (uint32_t(millis() - lastTokenUpdate) > TOKEN_REFRESH_MS && EnphaseTokenRetryAllowed())
 	  {    // Tout les 30 jours on recherche un nouveau Token
-      lastTokenUpdate = millis();                         // overflow compatible!
-      Setup_Enphase();
+      RenouvelleTokenEnphase();
     }
 
     // `Cookie: sessionId=...` est le cookie de session local de l'Envoy, et non le `session_id` Enlighten/entrez.
@@ -439,7 +506,7 @@ void LectureEnphase()
       // Cette ligne devrait alors contenir le HTTP response code (200, 401...)
 
 
-      if(!strstr(statusLine, "HTTP/")) {
+      if(result != READ_OK || !strstr(statusLine, "HTTP/")) {
         if (result == READ_DISCONNECTED) {
           TelnetPrintln("Envoy connection closed before sending any HTTP response. Retrying new connection...");
         } else {
@@ -451,13 +518,13 @@ void LectureEnphase()
 
       // si on a un 401 et qu'on a utilisé le cookie, alors on s'autorise 
       // à retenter avec le token via continue, apres avoir invalidé le cookie
-      if(bUseCookie && strstr(statusLine, "401")) {
+      int httpCode = HttpStatusCode(statusLine);
+      if(bUseCookie && (httpCode == 401 || httpCode == 403)) {
         EnvoySessionIdCookie = "";
 	      StockMessage("Envoy SessionId not valid anymore, retrying with Auth Bearer...");
         continue;  //retry on next loop with auth bearer
       }
 
-      int httpCode = HttpStatusCode(statusLine);
       if (!bUseCookie && (httpCode == 401 || httpCode == 403)) {
         // token refusé (expiré/révoqué) : on en redemande un, au plus toutes les TOKEN_RETRY_MS
         client.stop();
@@ -468,7 +535,7 @@ void LectureEnphase()
         return;  //retry on next LectureEnphase() call
       }
 
-      if(!strstr(statusLine, "200")) {
+      if(httpCode != 200) {
         // toute autre erreur n'est pas récupérable, on sort de la fonction
         StockMessage(String("Envoy refused request: statusLine=[") + statusLine + "]");
         client.stop();
@@ -479,9 +546,12 @@ void LectureEnphase()
       if(!bUseCookie) // si on a utilisé le token, on doit récupérer le cookie sessionId pour les prochains appels
       {
         EnvoyDureeDerniereRequeteViaAuthBearerMs.add(millis() - nRequestStarted);
-        CaptureEnvoySessionIdFromHeaders(client, TIMEOUT_WAITING_ANSWER);
       } else {
         EnvoyDureeDerniereRequeteViaSessionCookieMs.add(millis() - nRequestStarted);
+      }
+      if (CaptureEnvoySessionIdFromHeaders(client, TIMEOUT_WAITING_ANSWER)) {
+        client.stop();
+        return;
       }
       break;
     }
@@ -515,6 +585,13 @@ void LectureEnphase()
         return;
       }
       delay(1);
+      if (!EnvoyPayloadPrefixValide(jsonPayload, nGlobalIndex == 0 ? "" : "]},") ||
+          !EnvoyPayloadValide(jsonPayload, true, !bMonoPhase,
+                              nGlobalIndex == 1 && !bMonoPhase)) {
+        StockMessage("Envoy invalid meter header");
+        client.stop();
+        return;
+      }
 
       if (nGlobalIndex == 0) {
         //StockMessage(jsonPayload);
@@ -554,7 +631,20 @@ void LectureEnphase()
           client.stop();
           return;
         }
-        jsonPayload[jsonPayloadLength-1] = '}';
+        if (jsonPayloadLength + 1 >= sizeof(jsonPayload)) {
+          StockMessage("Envoy phase payload too long");
+          client.stop();
+          return;
+        }
+        jsonPayload[jsonPayloadLength++] = '}';
+        jsonPayload[jsonPayloadLength] = '\0';
+        if (!EnvoyPayloadPrefixValide(jsonPayload, nPhaseIndex == 0 ? "" : ",") ||
+            !EnvoyPayloadValide(jsonPayload, false, nGlobalIndex == 0 && nPhaseIndex == 0,
+                               nGlobalIndex == 1 && nPhaseIndex == 0 && bMonoPhase)) {
+          StockMessage("Envoy invalid phase payload");
+          client.stop();
+          return;
+        }
         delay(1);
 
         if ((nGlobalIndex == 0) && (nPhaseIndex == 0)) {
@@ -586,6 +676,28 @@ void LectureEnphase()
           Tension_M3 = ValJson("voltage", jsonPayload);
           Intensite_M3 = ValJson("current", jsonPayload);
           
+          int tailStatus = ReadBufferUntilChar(client, jsonPayload, sizeof(jsonPayload),
+                                               jsonPayloadLength, ']', TIMEOUT_READ_PAYLOAD);
+          bool tailValid = tailStatus == READ_OK;
+          for (size_t i = 0; i < jsonPayloadLength; ++i)
+            tailValid = tailValid && isspace((unsigned char)jsonPayload[i]);
+          if (tailValid) {
+            tailStatus = ReadBufferUntilChar(client, jsonPayload, sizeof(jsonPayload),
+                                             jsonPayloadLength, ']', TIMEOUT_READ_PAYLOAD);
+            bool meterClosed = false;
+            tailValid = tailStatus == READ_OK;
+            for (size_t i = 0; i < jsonPayloadLength; ++i) {
+              if (isspace((unsigned char)jsonPayload[i])) continue;
+              if (jsonPayload[i] != '}' || meterClosed) tailValid = false;
+              meterClosed = true;
+            }
+            tailValid = tailValid && meterClosed;
+          }
+          if (!tailValid) {
+            StockMessage("Envoy invalid or truncated JSON ending");
+            client.stop();
+            return;
+          }
           bJsonLoadingFinished = true;
 
           unsigned long nNow = millis();
@@ -604,22 +716,6 @@ void LectureEnphase()
   }
 
   if (!bJsonLoadingFinished) {
-    //Protection contre les mauvaises lectures qui perdureraient plus de 10s !!!
-    if ((millis() - g_nLastGoodReading) > 10000) {
-      PactProd = 0.0f;
-      PactConso_M = 0;
-      PactReseau = 0.0f;
-      PactConso_M = 0.0f;
-      Tension_M = 0.0f;
-      Intensite_M = 0.0f;
-      Frequence = 0.0f;
-      Tension_M1 = 0.0f;
-      Tension_M2 = 0.0f;
-      Tension_M3 = 0.0f;
-      Intensite_M1 = 0.0f;
-      Intensite_M2 = 0.0f;
-      Intensite_M3 = 0.0f;
-    }
 	  //TelnetPrintln("JSON Loading failed");
     StockMessage("JSON Loading failed");
 	  return;
@@ -646,7 +742,7 @@ void LectureEnphase()
   filtre_puissance();
   float PowerFactor = 0.0f;
   if ((PVA_M_moy) != 0) {
-    PowerFactor = floor(100.0f * fabsf(Puissance_M_moy) / PVA_M_moy) / 100.0f;
+    PowerFactor = floor(100.0f * fabsf(Puissance_M_moy) / fabsf(PVA_M_moy)) / 100.0f;
     PowerFactor = min(PowerFactor, 1.0f);
   }
   PowerFactor_M = PowerFactor;
@@ -709,7 +805,7 @@ float ValJson(String nom, String Json) {
   }
   return val;
 }
-float ValJson(const char* nom, const char* json)
+double ValJson(const char* nom, const char* json)
 // version alternative pour éviter les allocations de String et les copies de mémoire
 {
   if (nom == nullptr || json == nullptr)
@@ -739,7 +835,7 @@ float ValJson(const char* nom, const char* json)
     p++;
 
   char* endPtr = nullptr;
-  float val = strtof(p, &endPtr);
+  double val = strtod(p, &endPtr);
 
   if (endPtr == p)
     return 0.0f;

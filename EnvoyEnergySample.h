@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <cmath>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include "EnvoyReadObserver.h"
@@ -37,21 +38,31 @@ inline bool ParseEnvoyPhasePower(const char* json, double& powerW) {
   return std::isfinite(powerW);
 }
 
-inline bool ParseEnvoyReadingHeader(const char* header, EnvoyEnergySample& sample) {
+inline bool EnvoyReadingHeaderJson(const char* header, char* json, size_t capacity) {
   const char* start = std::strchr(header, '{');
   const char* channels = std::strstr(header, "\"channels\"");
   if (!start || !channels || channels <= start) return false;
+  const char* suffix = channels + std::strlen("\"channels\"");
+  while (*suffix && std::isspace(static_cast<unsigned char>(*suffix))) ++suffix;
+  if (*suffix++ != ':') return false;
+  while (*suffix && std::isspace(static_cast<unsigned char>(*suffix))) ++suffix;
+  if (*suffix && *suffix != '[') return false;
   size_t length = static_cast<size_t>(channels - start);
   while (length && (start[length - 1] == ' ' || start[length - 1] == '\r' ||
                     start[length - 1] == '\n' || start[length - 1] == '\t'))
     --length;
   if (length && start[length - 1] == ',') --length;
-  char json[1024];
-  if (length + 2 > sizeof(json)) return false;
+  if (length + 2 > capacity) return false;
   std::memcpy(json, start, length);
   json[length] = '}';
   json[length + 1] = '\0';
-  return ParseEnvoyReadingSample(json, sample);
+  return true;
+}
+
+inline bool ParseEnvoyReadingHeader(const char* header, EnvoyEnergySample& sample) {
+  char json[1024];
+  return EnvoyReadingHeaderJson(header, json, sizeof(json)) &&
+         ParseEnvoyReadingSample(json, sample);
 }
 
 inline bool ParseEnvoyEnergySample(const char* json, EnvoyEnergySample& sample) {
