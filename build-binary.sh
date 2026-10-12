@@ -1,249 +1,308 @@
 #!/usr/bin/env bash
+# Compile the firmware with arduino-cli and archive the binaries with a manifest.
+#
+# The sources (--workdir) and the tooling (this script, tools/, sketch.yaml) are independent:
+# any branch or worktree can be built with the tooling of the build-automation branch.
 set -euo pipefail
 
-# Build firmware even when the repo folder name does not match the main .ino file name.
-# Arduino requires: sketch folder name == main .ino name.
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="${WORKDIR:-$SCRIPT_DIR}"
-PARENT_WORKSPACE_DIR=$HOME/dev/Solar-Router-F1ATB-workspace
-
-# Optional: allow overriding work directory from CLI
-if [[ "${1:-}" == "--workdir" ]]; then
-  if [[ -z "${2:-}" ]]; then
-    echo "Error: --workdir requires a path argument" >&2
-    exit 1
-  fi
-  WORK_DIR="$(cd "$2" 2>/dev/null && pwd -P)" || {
-    echo "Error: Work directory does not exist: $2" >&2
-    exit 1
-  }
-  shift 2
-fi
-
-FQBN_DEFAULT="esp32:esp32:esp32:PartitionScheme=custom"
-FQBN="${FQBN:-$FQBN_DEFAULT}"
-OUT_DIR="${OUT_DIR:-$PARENT_WORKSPACE_DIR/build}"
-ARCHIVE_DIR="${ARCHIVE_DIR:-$PARENT_WORKSPACE_DIR/releases}"
-LOG_FILE="${LOG_FILE:-$PARENT_WORKSPACE_DIR/build-binary.log}"
-BUILD_TAG="${BUILD_TAG:-localdev}"
-
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-# Append timestamp to BUILD_TAG only if not already present, to avoid duplication on retries.
-if [[ "$BUILD_TAG" == *local* && ! "$BUILD_TAG" =~ [0-9]{8}-[0-9]{6} ]]; then
-  BUILD_TAG="$BUILD_TAG-$TIMESTAMP"
-fi
-# BIN_SUFFIX mirrors BUILD_TAG and ensures a timestamp is always present in the archive filename.
-BIN_SUFFIX="$BUILD_TAG"
-if [[ ! "$BIN_SUFFIX" =~ [0-9]{8}-[0-9]{6} ]]; then
-  BIN_SUFFIX="${BIN_SUFFIX}-${TIMESTAMP}"
-fi
-
-# Canonicalize paths (resolve .., symlinks when possible) for cleaner logs and outputs.
-canonpath() {
-  local target="$1"
-  local dir base
-
-  if [[ -d "$target" ]]; then
-    (cd "$target" >/dev/null 2>&1 && pwd -P)
-    return
-  fi
-
-  dir="$(dirname "$target")"
-  base="$(basename "$target")"
-  if [[ -d "$dir" ]]; then
-    printf '%s/%s\n' "$(cd "$dir" >/dev/null 2>&1 && pwd -P)" "$base"
-  else
-    # Fallback if parent does not exist yet.
-    printf '%s\n' "$target"
-  fi
-}
-
-# OUT_DIR="$(canonpath "$OUT_DIR")"
-# ARCHIVE_DIR="$(canonpath "$ARCHIVE_DIR")"
-# LOG_FILE="$(canonpath "$LOG_FILE")"
-
-COLOR_ENABLED=0
-if [[ -n "${FORCE_COLOR:-}" ]]; then
-  COLOR_ENABLED=1
-elif [[ -z "${NO_COLOR:-}" && -t 1 ]]; then
-  COLOR_ENABLED=1
-fi
-
-if [[ "$COLOR_ENABLED" -eq 1 ]]; then
-  C_RESET='\033[0m'
-  C_INFO='\033[1;36m'
-  C_START='\033[0;32m'
-  C_END='\033[0;32m'
-  C_FAIL='\033[0;31m'
-  C_WARN='\033[1;33m'
-  C_TEXT_INFO='\033[1m'
-  C_TEXT_START='\033[0m'
-  C_TEXT_END='\033[0m'
-  C_TEXT_FAIL='\033[1m'
-  C_TEXT_WARN='\033[1m'
-else
-  C_RESET=''
-  C_INFO=''
-  C_START=''
-  C_END=''
-  C_FAIL=''
-  C_WARN=''
-  C_TEXT_INFO=''
-  C_TEXT_START=''
-  C_TEXT_END=''
-  C_TEXT_FAIL=''
-  C_TEXT_WARN=''
-fi
-
-log() {
-  local level="$1"
-  shift
-  local color="$C_INFO"
-  local color_text="$C_TEXT_INFO"
-  case "$level" in
-    START) color="$C_START"; color_text="$C_TEXT_START" ;;
-    END) color="$C_END"; color_text="$C_TEXT_END" ;;
-    FAIL|ERROR) color="$C_FAIL"; color_text="$C_TEXT_FAIL" ;;
-    WARN) color="$C_WARN"; color_text="$C_TEXT_WARN" ;;
-    INFO|*) color="$C_INFO"; color_text="$C_TEXT_INFO" ;;
-  esac
-  printf '%b[%s] %-5s%b %b%s%b\n' "$color" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$C_RESET" "$color_text" "$*" "$C_RESET"
-}
-
-run_step() {
-  local label="$1"
-  shift
-  local start_ts end_ts elapsed
-  start_ts="$(date +%s)"
-  log START "${label}"
-  log INFO "+ $*"
-  if "$@"; then
-    end_ts="$(date +%s)"
-    elapsed="$((end_ts - start_ts))"
-    log END "${label} (${elapsed}s)"
-  else
-    end_ts="$(date +%s)"
-    elapsed="$((end_ts - start_ts))"
-    log FAIL "${label} (${elapsed}s)"
-    return 1
-  fi
-}
-
-mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee -a "$LOG_FILE") 2>&1
-log INFO "Log file: $LOG_FILE"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=tools/build-lib.sh
+source "$SCRIPT_DIR/tools/build-lib.sh"
 
 usage() {
-  cat <<'EOF'
+  cat <<'USAGE'
 Usage:
-  ./build-binary.sh [--workdir /path] [MAIN_INO_FILE]
+  build-binary.sh [options] [MAIN_INO_FILE]
 
-Examples:
-  ./build-binary.sh
-  ./build-binary.sh --workdir /path/to/worktree
-  ./build-binary.sh Solar_Router_V17_16.ino
-  WORKDIR=/path/to/worktree ./build-binary.sh
-  FQBN=esp32:esp32:esp32:PartitionScheme=custom ./build-binary.sh
-  OUT_DIR=./build/custom ./build-binary.sh
+Compiles the sketch found in the work directory and archives the result in
+releases/<Sketch>_<BUILD_TAG>/ (firmware, elf, bootloader, partitions, merged image,
+manifest.txt, worktree.patch, build.log, SHA256SUMS).
+
+Options:
+  --workdir PATH   Sources to build (default: $WORKDIR, else the current directory if it
+                   contains the main .ino, else the directory of this script)
+  --profile NAME   arduino-cli profile from sketch.yaml (default: default_profile, else esp32)
+  --no-profile     Ignore sketch.yaml and use $FQBN with the globally installed core/libraries
+  --fresh-core     Use an empty core cache (recompiles the ESP32 core, ~+1 min; the
+                   "Compile Date/Time" printed at boot is then the real one)
+  -h, --help       Show this help
 
 Environment variables:
-  WORKDIR Work directory used for sources/build files
-  FQBN    Board target for arduino-cli
-  OUT_DIR Output directory for binaries
-  ARCHIVE_DIR Directory where timestamped .ino.bin copies are stored
-  LOG_FILE Path to execution log file (default: ./build-binary.log)
-  BIN_SUFFIX Optional suffix inserted before .ino.bin in the archive filename (e.g. _dev)
-  BUILD_TAG Optional string appended to Version in the firmware UI (e.g. -dev-20260327-143000)
-  NO_COLOR Disable colored output
-  FORCE_COLOR Force colored output
-EOF
+  BUILD_TAG        Tag shown in the firmware version, timestamp appended if missing (default: localdev)
+  BUILD_GIT_SHA    Commit shown in the firmware version (default: short HEAD of the work directory,
+                   suffixed with -dirty when it has local changes)
+  FQBN             Board when building without profile (default: esp32:esp32:esp32:PartitionScheme=custom)
+  SR_OUTPUT_ROOT   Root for build/, releases/, logs/, .tmp-build/ (default: main worktree of the repo)
+  OUT_DIR          Raw arduino-cli output of the last build (default: $SR_OUTPUT_ROOT/build)
+  ARCHIVE_DIR      Archive root (default: $SR_OUTPUT_ROOT/releases)
+  LOG_FILE         Build log (default: $SR_OUTPUT_ROOT/logs/<Sketch>_<BUILD_TAG>.build.log)
+  SR_KEEP_TMP=1    Keep the staging directory in .tmp-build/
+  NO_COLOR / FORCE_COLOR
+USAGE
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
+WORK_DIR="${WORKDIR:-}"
+PROFILE="${SKETCH_PROFILE:-}"
+USE_PROFILE=1
+FRESH_CORE=0
+MAIN_INO=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --workdir) [[ -n "${2:-}" ]] || die "--workdir requires a path"; WORK_DIR="$2"; shift 2 ;;
+    --profile) [[ -n "${2:-}" ]] || die "--profile requires a name"; PROFILE="$2"; shift 2 ;;
+    --no-profile) USE_PROFILE=0; shift ;;
+    --fresh-core) FRESH_CORE=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -*) die "Unknown option: $1 (see --help)" ;;
+    *) MAIN_INO="$1"; shift ;;
+  esac
+done
+
+if [[ -z "$WORK_DIR" ]]; then
+  if [[ -n "$(sr_find_main_ino "$PWD")" ]]; then WORK_DIR="$PWD"; else WORK_DIR="$SCRIPT_DIR"; fi
 fi
+WORK_DIR="$(sr_abspath "$WORK_DIR")" || die "Work directory does not exist: $WORK_DIR"
 
-cd "$WORK_DIR"
-
-MAIN_INO="${1:-}"
-if [[ -z "$MAIN_INO" ]]; then
-  # Pick the sketch tab that defines firmware version; this is the main tab in this project.
-  MAIN_INO="$(grep -l '^#define[[:space:]]\+Version[[:space:]]\+"' ./*.ino | head -n1 | xargs -n1 basename)"
-fi
-
-if [[ -z "$MAIN_INO" || ! -f "$MAIN_INO" ]]; then
-  log ERROR "Unable to find main .ino file."
-  log INFO "Tip: pass it explicitly, e.g. ./build-binary.sh Solar_Router_V17_16.ino"
-  exit 1
-fi
-
+[[ -n "$MAIN_INO" ]] || MAIN_INO="$(sr_find_main_ino "$WORK_DIR")"
+[[ -n "$MAIN_INO" && -f "$WORK_DIR/$MAIN_INO" ]] \
+  || die "Main .ino not found in $WORK_DIR (pass it explicitly, e.g. build-binary.sh Solar_Router_V17_25.ino)"
+[[ "$MAIN_INO" == *.ino ]] || die "Main file must end with .ino: $MAIN_INO"
 SKETCH_NAME="${MAIN_INO%.ino}"
-if [[ "$SKETCH_NAME" == "$MAIN_INO" ]]; then
-  log ERROR "Main file must end with .ino"
-  exit 1
-fi
+FW_VERSION="$(sed -n 's/^#define[[:space:]]\{1,\}Version[[:space:]]\{1,\}"\([^"]*\)".*/\1/p' "$WORK_DIR/$MAIN_INO" | head -n1)"
 
-TMP_ROOT="$WORK_DIR/.tmp-build"
+IS_GIT=0
+git -C "$WORK_DIR" rev-parse --git-dir >/dev/null 2>&1 && IS_GIT=1
+
+TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+BUILD_TAG="${BUILD_TAG:-localdev}"
+[[ "$BUILD_TAG" =~ [0-9]{8}-[0-9]{6} ]] || BUILD_TAG="$BUILD_TAG-$TIMESTAMP"
+[[ "$BUILD_TAG" =~ ^[A-Za-z0-9._+-]+$ ]] || die "BUILD_TAG may only contain [A-Za-z0-9._+-]: $BUILD_TAG"
+
+SR_ROOT="$(sr_output_root "$WORK_DIR")"
+OUT_DIR="${OUT_DIR:-$SR_ROOT/build}"
+ARCHIVE_DIR="${ARCHIVE_DIR:-$SR_ROOT/releases}"
+ARTIFACT="${SKETCH_NAME}_${BUILD_TAG}"
+RELEASE_DIR="$ARCHIVE_DIR/$ARTIFACT"
+LOG_FILE="${LOG_FILE:-$SR_ROOT/logs/$ARTIFACT.build.log}"
+TMP_ROOT="$SR_ROOT/.tmp-build/$ARTIFACT"
 STAGE_DIR="$TMP_ROOT/$SKETCH_NAME"
 
+[[ ! -e "$RELEASE_DIR" ]] || die "Release directory already exists: $RELEASE_DIR"
+
+BUILD_OK=0
 cleanup() {
-  rm -rf "$TMP_ROOT"
+  if [[ "$BUILD_OK" -ne 1 && -d "$RELEASE_DIR" ]]; then
+    rm -rf "$RELEASE_DIR"
+    log FAIL "Build failed, partial release removed. Log: $LOG_FILE"
+  fi
+  if [[ "${SR_KEEP_TMP:-0}" == "1" ]]; then
+    log INFO "Staging kept: $TMP_ROOT"
+  else
+    rm -rf "$TMP_ROOT"
+    rmdir "$SR_ROOT/.tmp-build" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
-mkdir -p "$STAGE_DIR" "$OUT_DIR"
+sr_tee_log "$LOG_FILE"
+log INFO "Log file: $LOG_FILE"
+command -v arduino-cli >/dev/null || die "arduino-cli not found in PATH"
+command -v python3 >/dev/null || die "python3 not found in PATH"
 
-# Stage all files into a temp sketch folder named exactly like the main .ino file.
-run_step "rsync staging" rsync -a --delete \
-  --exclude '.git' \
-  --exclude '.tmp-build' \
-  --exclude 'build' \
-  --exclude 'releases' \
-  "$WORK_DIR/" "$STAGE_DIR/"
+# ---------------------------------------------------------------------------
+# Staging: Arduino requires the sketch folder name to match the main .ino.
+# Only tracked + untracked non-ignored files are staged, secrets excluded.
+# ---------------------------------------------------------------------------
+rm -rf "$TMP_ROOT"
+mkdir -p "$STAGE_DIR"
+if [[ "$IS_GIT" -eq 1 ]]; then
+  sr_source_files "$WORK_DIR" | run_step "staging (git-listed files)" \
+    rsync -a --from0 --files-from=- "$WORK_DIR/" "$STAGE_DIR/"
+else
+  excludes=(--exclude .git --exclude .tmp-build --exclude build --exclude releases --exclude logs)
+  for g in "${SR_SECRET_GLOBS[@]}"; do excludes+=(--exclude "$g"); done
+  run_step "staging (rsync)" rsync -a "${excludes[@]}" "$WORK_DIR/" "$STAGE_DIR/"
+fi
+[[ -f "$STAGE_DIR/$MAIN_INO" ]] || die "Staged main file not found: $STAGE_DIR/$MAIN_INO"
 
-if [[ ! -f "$STAGE_DIR/$MAIN_INO" ]]; then
-  log ERROR "Staged main file not found: $STAGE_DIR/$MAIN_INO"
-  exit 1
+# ---------------------------------------------------------------------------
+# Source description for the manifest
+# ---------------------------------------------------------------------------
+SOURCE_SECTION="${SR_SOURCE_SECTION:-}"
+SOURCE_PATCH="${SR_SOURCE_PATCH:-}"
+if [[ -z "$SOURCE_SECTION" ]]; then
+  SOURCE_SECTION="$TMP_ROOT/source.yaml"
+  if [[ "$IS_GIT" -eq 1 ]]; then
+    SOURCE_PATCH="$TMP_ROOT/worktree.patch"
+    sr_worktree_patch "$WORK_DIR" "$SOURCE_PATCH"
+    head_sha="$(git -C "$WORK_DIR" rev-parse HEAD)"
+    branch="$(git -C "$WORK_DIR" branch --show-current)"
+    {
+      echo "source:"
+      echo "  mode: \"build-binary\""
+      echo "  worktree: \"$WORK_DIR\""
+      echo "  branch: \"${branch:-(detached)}\""
+      echo "  head_sha: \"$head_sha\""
+      echo "  describe: \"$(git -C "$WORK_DIR" describe --always --dirty --tags 2>/dev/null)\""
+      if [[ -s "$SOURCE_PATCH" ]]; then
+        echo "  worktree_patch: \"worktree.patch\""
+        echo "  worktree_patch_sha256: \"$(sr_sha256 "$SOURCE_PATCH")\""
+        echo "  worktree_patch_files:"
+        git -C "$WORK_DIR" apply --numstat "$SOURCE_PATCH" | awk '{printf "    - \"%s\"\n", $3}'
+      else
+        echo "  worktree_patch: null"
+      fi
+    } > "$SOURCE_SECTION"
+    if [[ -z "${BUILD_GIT_SHA:-}" ]]; then
+      BUILD_GIT_SHA="$(git -C "$WORK_DIR" rev-parse --short=8 HEAD)"
+      [[ -s "$SOURCE_PATCH" ]] && BUILD_GIT_SHA="$BUILD_GIT_SHA-dirty"
+    fi
+  else
+    printf 'source:\n  mode: "build-binary"\n  worktree: "%s"\n  git: false\n' "$WORK_DIR" > "$SOURCE_SECTION"
+  fi
+fi
+BUILD_GIT_SHA="${BUILD_GIT_SHA:-unknown}"
+[[ "$BUILD_GIT_SHA" =~ ^[A-Za-z0-9._+-]+$ ]] || die "BUILD_GIT_SHA may only contain [A-Za-z0-9._+-]: $BUILD_GIT_SHA"
+
+# ---------------------------------------------------------------------------
+# Board / profile
+# ---------------------------------------------------------------------------
+FQBN="${FQBN:-esp32:esp32:esp32:PartitionScheme=custom}"
+PROFILE_ARGS=()
+if [[ "$USE_PROFILE" -eq 1 ]]; then
+  if [[ ! -f "$STAGE_DIR/sketch.yaml" && -f "$SCRIPT_DIR/sketch.yaml" ]]; then
+    cp "$SCRIPT_DIR/sketch.yaml" "$STAGE_DIR/sketch.yaml"
+    log INFO "sketch.yaml taken from tooling: $SCRIPT_DIR/sketch.yaml"
+  fi
+  if [[ -f "$STAGE_DIR/sketch.yaml" ]]; then
+    [[ -n "$PROFILE" ]] || PROFILE="$(sed -n 's/^default_profile:[[:space:]]*//p' "$STAGE_DIR/sketch.yaml" | tr -d '"'\''[:space:]')"
+    PROFILE="${PROFILE:-esp32}"
+    FQBN="$(awk -v p="$PROFILE" '
+      $0 ~ "^  " p ":[[:space:]]*$" { inp = 1; next }
+      inp && /^  [^ ]/ { inp = 0 }
+      inp && /^    fqbn:/ { sub(/^    fqbn:[[:space:]]*/, ""); print; exit }' "$STAGE_DIR/sketch.yaml")"
+    [[ -n "$FQBN" ]] || die "Profile '$PROFILE' (or its fqbn) not found in sketch.yaml"
+    PROFILE_ARGS=(--profile "$PROFILE")
+  else
+    log WARN "No sketch.yaml: building with the globally installed core and libraries"
+    USE_PROFILE=0
+    PROFILE=""
+  fi
+else
+  rm -f "$STAGE_DIR/sketch.yaml"
+  PROFILE=""
+fi
+[[ "${#PROFILE_ARGS[@]}" -gt 0 ]] || PROFILE_ARGS=(--fqbn "$FQBN")
+
+if [[ "$FQBN" == *PartitionScheme=custom* && ! -f "$STAGE_DIR/partitions.csv" ]]; then
+  die "PartitionScheme=custom requires partitions.csv at the sketch root"
 fi
 
-log INFO "Build target: ${MAIN_INO} (FQBN: ${FQBN})"
-log INFO "Work directory: ${WORK_DIR}"
-log INFO "Staging strategy: compile from ${STAGE_DIR} so sketch folder matches ${SKETCH_NAME}.ino"
-log INFO "Outputs: build=${OUT_DIR} archive=${ARCHIVE_DIR}"
-[[ -n "$BUILD_TAG" ]] && log INFO "Build tag: ${BUILD_TAG}"
-
-# Patch build_opt.h in the staging dir so BUILD_TAG overrides any default.
-# This is more reliable than --build-property which does not override build_opt.h.
+# ---------------------------------------------------------------------------
+# Version flags in build_opt.h (overrides any BUILD_TAG / BUILD_GIT_SHA already present)
+# ---------------------------------------------------------------------------
 BUILD_OPT="$STAGE_DIR/build_opt.h"
-if [[ -n "$BUILD_TAG" ]]; then
-  if [[ -f "$BUILD_OPT" ]]; then
-    # Replace any existing BUILD_TAG line
-    sed -i '' "s|-DBUILD_TAG=\\\\\"[^\\\"]*\\\\\"|-DBUILD_TAG=\\\\\"${BUILD_TAG}\\\\\"|g" "$BUILD_OPT"
-    log INFO "Patched build_opt.h: BUILD_TAG=${BUILD_TAG}"
-  else
-    printf -- '-DBUILD_TAG=\\"%s\\"\n' "$BUILD_TAG" >> "$BUILD_OPT"
-    log INFO "Created build_opt.h with BUILD_TAG=${BUILD_TAG}"
+touch "$BUILD_OPT"
+{ grep -v -e '-DBUILD_TAG=' -e '-DBUILD_GIT_SHA=' "$BUILD_OPT" || true; } > "$BUILD_OPT.tmp"
+printf -- '-DBUILD_TAG=\\"%s\\"\n-DBUILD_GIT_SHA=\\"%s\\"\n' "$BUILD_TAG" "$BUILD_GIT_SHA" >> "$BUILD_OPT.tmp"
+mv "$BUILD_OPT.tmp" "$BUILD_OPT"
+
+log INFO "Sketch:      $MAIN_INO (Version $FW_VERSION)"
+log INFO "Work dir:    $WORK_DIR"
+log INFO "Build tag:   $BUILD_TAG"
+log INFO "Git sha:     $BUILD_GIT_SHA"
+log INFO "FQBN:        $FQBN"
+log INFO "Profile:     ${PROFILE:-(none)}"
+log INFO "Release dir: $RELEASE_DIR"
+
+# ---------------------------------------------------------------------------
+# Compile
+# ---------------------------------------------------------------------------
+sr_arduino_network_timeout
+COMPILE_ENV=()
+if [[ "$FRESH_CORE" -eq 1 ]]; then
+  COMPILE_ENV=(ARDUINO_BUILD_CACHE_PATH="$TMP_ROOT/build-cache")
+  log INFO "Fresh core cache: $TMP_ROOT/build-cache"
+fi
+COMPILE_JSON="$TMP_ROOT/compile.json"
+COMPILE_CMD=(arduino-cli compile "${PROFILE_ARGS[@]}" --build-path "$TMP_ROOT/build-path"
+  --output-dir "$TMP_ROOT/out" --json "$STAGE_DIR")
+compile_rc=0
+compile_start="$(date +%s)"
+log START "arduino-cli compile (output shown at the end)"
+printf '%b+ %s%b\n' "$C_CMD" "${COMPILE_ENV[*]+${COMPILE_ENV[*]} }${COMPILE_CMD[*]}" "$C_RESET"
+env "${COMPILE_ENV[@]+"${COMPILE_ENV[@]}"}" "${COMPILE_CMD[@]}" > "$COMPILE_JSON" || compile_rc=$?
+python3 - "$COMPILE_JSON" <<'PY' || true
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print(open(sys.argv[1]).read())
+    sys.exit(0)
+for k in ("compiler_out", "compiler_err"):
+    if d.get(k): print(d[k], end="" if d[k].endswith("\n") else "\n")
+if d.get("error"): print("error:", d["error"])
+PY
+[[ "$compile_rc" -eq 0 ]] || die "arduino-cli compile failed (exit $compile_rc)"
+log END "arduino-cli compile ($(( $(date +%s) - compile_start ))s)"
+
+BIN_FILE="$TMP_ROOT/out/$MAIN_INO.bin"
+[[ -f "$BIN_FILE" ]] || die "Expected firmware file not found: $BIN_FILE"
+
+# arduino-cli checks against upload.maximum_size (16 MB for the custom scheme), not partitions.csv.
+BIN_SIZE="$(wc -c < "$BIN_FILE" | tr -d ' ')"
+APP_SIZE=0
+if [[ -f "$STAGE_DIR/partitions.csv" ]]; then
+  APP_SIZE="$(sr_app_partition_size "$STAGE_DIR/partitions.csv")"
+  if [[ "${APP_SIZE:-0}" -gt 0 ]]; then
+    pct=$(( BIN_SIZE * 100 / APP_SIZE ))
+    log INFO "Firmware size: $BIN_SIZE / $APP_SIZE bytes app partition ($pct%, $(( APP_SIZE - BIN_SIZE )) bytes free)"
+    [[ "$BIN_SIZE" -le "$APP_SIZE" ]] || die "Firmware does not fit in the app partition of partitions.csv"
+    [[ "$pct" -lt 95 ]] || log WARN "Firmware uses $pct% of the app partition"
   fi
 fi
 
-run_step "arduino-cli compile" arduino-cli compile \
-  --fqbn "$FQBN" \
-  --output-dir "$OUT_DIR" \
-  "$STAGE_DIR"
+# ---------------------------------------------------------------------------
+# Archive
+# ---------------------------------------------------------------------------
+rm -rf "$OUT_DIR"
+mkdir -p "$OUT_DIR" "$RELEASE_DIR"
+cp "$TMP_ROOT/out/"* "$OUT_DIR/"
 
-BIN_FILE="$OUT_DIR/${MAIN_INO}.bin"
-if [[ ! -f "$BIN_FILE" ]]; then
-  log ERROR "Expected firmware file not found: $BIN_FILE"
-  exit 1
+ARTIFACTS=()
+for ext in bin elf bootloader.bin partitions.bin merged.bin; do
+  src="$TMP_ROOT/out/$MAIN_INO.$ext"
+  [[ -f "$src" ]] || continue
+  cp "$src" "$RELEASE_DIR/$ARTIFACT.ino.$ext"
+  ARTIFACTS+=("$ARTIFACT.ino.$ext")
+done
+if [[ -n "$SOURCE_PATCH" && -s "$SOURCE_PATCH" ]]; then
+  cp "$SOURCE_PATCH" "$RELEASE_DIR/worktree.patch"
+  ARTIFACTS+=(worktree.patch)
 fi
 
-BIN_COPY_NAME="${MAIN_INO%.ino}_${BIN_SUFFIX}.ino.bin"
-mkdir -p "$ARCHIVE_DIR"
-BIN_COPY_PATH="$ARCHIVE_DIR/$BIN_COPY_NAME"
-cp "$BIN_FILE" "$BIN_COPY_PATH"
+manifest_args=()
+for a in "${ARTIFACTS[@]}"; do manifest_args+=(--artifact "$a"); done
+python3 "$SCRIPT_DIR/tools/write-manifest.py" \
+  --out "$RELEASE_DIR/manifest.txt" \
+  --compile-json "$COMPILE_JSON" \
+  --stage-dir "$STAGE_DIR" \
+  --release-dir "$RELEASE_DIR" \
+  --sketch "$SKETCH_NAME" \
+  --version "$FW_VERSION" \
+  --build-tag "$BUILD_TAG" \
+  --git-sha "$BUILD_GIT_SHA" \
+  --fqbn "$FQBN" \
+  --profile "$PROFILE" \
+  --app-partition-size "${APP_SIZE:-0}" \
+  --source-section "$SOURCE_SECTION" \
+  "${manifest_args[@]}"
 
-log INFO "Build done. Artifacts:"
-ls -1 "$OUT_DIR" | sed 's/^/  - /'
-log INFO "Timestamped copy: $BIN_COPY_PATH"
+(cd "$RELEASE_DIR" && shasum -a 256 "${ARTIFACTS[@]}" manifest.txt > SHA256SUMS)
+BUILD_OK=1
+[[ -n "${SR_RESULT_FILE:-}" ]] && printf '%s\n' "$RELEASE_DIR" > "$SR_RESULT_FILE"
+
+log OK "Build done: $RELEASE_DIR"
+for f in "${ARTIFACTS[@]}" manifest.txt SHA256SUMS; do log INFO "  - $f"; done
+log INFO "Firmware sha256: $(sr_sha256 "$RELEASE_DIR/$ARTIFACT.ino.bin")"
+cp "$LOG_FILE" "$RELEASE_DIR/build.log"
