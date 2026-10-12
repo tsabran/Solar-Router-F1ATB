@@ -60,11 +60,24 @@ run_step() {
   return "$rc"
 }
 
-# Tee all further stdout/stderr of the current shell to a log file (ANSI codes stripped in the file).
+# Tee all further stdout/stderr of the current shell to a log file (raw, unbuffered).
 sr_tee_log() {
   local file="$1"
   mkdir -p "$(dirname "$file")"
-  exec > >(tee >(sed -E $'s/\x1b\\[[0-9;]*m//g' >> "$file")) 2>&1
+  exec > >(tee -a "$file") 2>&1
+}
+
+# Copy a log started with sr_tee_log once everything printed so far has reached it
+# (tee runs asynchronously), without ANSI color codes.
+sr_copy_log() {
+  local src="$1" dest="$2" marker i
+  marker="Log saved: $dest"
+  log INFO "$marker"
+  for i in $(seq 1 50); do
+    grep -qF "$marker" "$src" 2>/dev/null && break
+    sleep 0.1
+  done
+  sed -E $'s/\x1b\\[[0-9;]*m//g' "$src" > "$dest"
 }
 
 # ---------------------------------------------------------------------------
@@ -85,7 +98,7 @@ sr_main_worktree() {
   fi
 }
 
-# Root for build/, releases/, logs/ and .tmp-build/:
+# Root for releases/ and .tmp-build/:
 # $SR_OUTPUT_ROOT, else the main worktree of the repo containing $1, else $1.
 sr_output_root() {
   if [[ -n "${SR_OUTPUT_ROOT:-}" ]]; then

@@ -30,10 +30,8 @@ Environment variables:
   BUILD_GIT_SHA    Commit shown in the firmware version (default: short HEAD of the work directory,
                    suffixed with -dirty when it has local changes)
   FQBN             Board when building without profile (default: esp32:esp32:esp32:PartitionScheme=custom)
-  SR_OUTPUT_ROOT   Root for build/, releases/, logs/, .tmp-build/ (default: main worktree of the repo)
-  OUT_DIR          Raw arduino-cli output of the last build (default: $SR_OUTPUT_ROOT/build)
+  SR_OUTPUT_ROOT   Root for releases/ and .tmp-build/ (default: main worktree of the repo)
   ARCHIVE_DIR      Archive root (default: $SR_OUTPUT_ROOT/releases)
-  LOG_FILE         Build log (default: $SR_OUTPUT_ROOT/logs/<Sketch>_<BUILD_TAG>.build.log)
   SR_KEEP_TMP=1    Keep the staging directory in .tmp-build/
   NO_COLOR / FORCE_COLOR
 USAGE
@@ -75,11 +73,11 @@ BUILD_TAG="${BUILD_TAG:-localdev}"
 [[ "$BUILD_TAG" =~ ^[A-Za-z0-9._+-]+$ ]] || die "BUILD_TAG may only contain [A-Za-z0-9._+-]: $BUILD_TAG"
 
 SR_ROOT="$(sr_output_root "$WORK_DIR")"
-OUT_DIR="${OUT_DIR:-$SR_ROOT/build}"
 ARCHIVE_DIR="${ARCHIVE_DIR:-$SR_ROOT/releases}"
 ARTIFACT="${SKETCH_NAME}_${BUILD_TAG}"
 RELEASE_DIR="$ARCHIVE_DIR/$ARTIFACT"
-LOG_FILE="${LOG_FILE:-$SR_ROOT/logs/$ARTIFACT.build.log}"
+# Outside TMP_ROOT, which is recreated after logging starts; copied into the release.
+LOG_FILE="$SR_ROOT/.tmp-build/$ARTIFACT.build.log"
 TMP_ROOT="$SR_ROOT/.tmp-build/$ARTIFACT"
 STAGE_DIR="$TMP_ROOT/$SKETCH_NAME"
 
@@ -89,19 +87,19 @@ BUILD_OK=0
 cleanup() {
   if [[ "$BUILD_OK" -ne 1 && -d "$RELEASE_DIR" ]]; then
     rm -rf "$RELEASE_DIR"
-    log FAIL "Build failed, partial release removed. Log: $LOG_FILE"
+    log FAIL "Build failed, partial release removed"
   fi
   if [[ "${SR_KEEP_TMP:-0}" == "1" ]]; then
-    log INFO "Staging kept: $TMP_ROOT"
+    log INFO "Staging kept: $TMP_ROOT (log: $LOG_FILE)"
   else
-    rm -rf "$TMP_ROOT"
+    rm -rf "$TMP_ROOT" "$LOG_FILE"
     rmdir "$SR_ROOT/.tmp-build" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
 
+rm -f "$LOG_FILE"
 sr_tee_log "$LOG_FILE"
-log INFO "Log file: $LOG_FILE"
 command -v arduino-cli >/dev/null || die "arduino-cli not found in PATH"
 command -v python3 >/dev/null || die "python3 not found in PATH"
 
@@ -298,4 +296,4 @@ BUILD_OK=1
 log OK "Build done: $RELEASE_DIR"
 for f in "${ARTIFACTS[@]}" manifest.txt SHA256SUMS; do log INFO "  - $f"; done
 log INFO "Firmware sha256: $(sr_sha256 "$RELEASE_DIR/$ARTIFACT.ino.bin")"
-cp "$LOG_FILE" "$RELEASE_DIR/build.log"
+sr_copy_log "$LOG_FILE" "$RELEASE_DIR/build.log"

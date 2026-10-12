@@ -39,7 +39,6 @@ repository as refs/heads/NAME, then refs/remotes/origin/NAME, then any commit-is
 
 Outputs (SR_OUTPUT_ROOT, default: main worktree of the repository):
   releases/<Sketch>_<mode>-<timestamp>/   firmware, manifest.txt, worktree.patch, logs
-  logs/merge-and-build_<timestamp>.log    full run log (merges + compilation)
   refs/builds/<mode>-<timestamp>          exact merged tree that was compiled
 
 Examples:
@@ -124,9 +123,23 @@ else
 fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
-RUN_LOG="$SR_ROOT/logs/merge-and-build_$RUN_TS.log"
+# Copied into each release as merge-and-build.log, then removed.
+RUN_LOG="$SR_ROOT/.tmp-build/merge-and-build_$RUN_TS.log"
+CLONES=()
+cleanup() {
+  local d
+  for d in ${CLONES[@]+"${CLONES[@]}"}; do
+    if [[ "$KEEP_CLONE" -eq 1 ]]; then
+      log INFO "Clone kept: $d"
+    else
+      rm -rf "$d"
+    fi
+  done
+  rm -f "$RUN_LOG"
+  rmdir "$SR_ROOT/.tmp-build" 2>/dev/null || true
+}
+trap cleanup EXIT
 sr_tee_log "$RUN_LOG"
-log INFO "Run log:      $RUN_LOG"
 log INFO "Tooling:      $SCRIPT_DIR"
 log INFO "Source repo:  $REPO_ROOT"
 log INFO "Output root:  $SR_ROOT"
@@ -188,22 +201,6 @@ if [[ -n "$(git -C "$SCRIPT_DIR" status --porcelain -- merge-and-build.sh build-
   log WARN "Tooling has uncommitted changes (recorded in the manifest)"
 fi
 
-# ---------------------------------------------------------------------------
-# Temporary clones
-# ---------------------------------------------------------------------------
-CLONES=()
-cleanup() {
-  local d
-  for d in ${CLONES[@]+"${CLONES[@]}"}; do
-    if [[ "$KEEP_CLONE" -eq 1 ]]; then
-      log INFO "Clone kept: $d"
-    else
-      rm -rf "$d"
-    fi
-  done
-  rmdir "$SR_ROOT/.tmp-build" 2>/dev/null || true
-}
-trap cleanup EXIT
 
 yaml_q() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
 
@@ -337,7 +334,7 @@ run_build() {
     echo "  branch: $(yaml_q "$TOOLS_BRANCH")"
     echo "  sha: $(yaml_q "$TOOLS_SHA")"
     echo "  dirty: $TOOLS_DIRTY"
-    echo "  run_log: $(yaml_q "$RUN_LOG")"
+    echo "  run_log: \"merge-and-build.log\""
   } > "$section"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -351,10 +348,10 @@ run_build() {
        SR_SOURCE_SECTION="$section" SR_SOURCE_PATCH="$patch" SR_RESULT_FILE="$result_file" \
        "$SCRIPT_DIR/build-binary.sh" --workdir "$clone"; then
     release_dir="$(cat "$result_file")"
-    cp "$RUN_LOG" "$release_dir/merge-and-build.log"
+    sr_copy_log "$RUN_LOG" "$release_dir/merge-and-build.log"
     log OK "$tag: $release_dir"
   else
-    log FAIL "$tag: build failed (see $RUN_LOG)"
+    log FAIL "$tag: build failed (see output above)"
     FAILED_MODES+=("$tag")
   fi
 }
@@ -365,6 +362,6 @@ done
 
 echo
 if [[ "${#FAILED_MODES[@]}" -gt 0 ]]; then
-  die "Failed: ${FAILED_MODES[*]} (log: $RUN_LOG)"
+  die "Failed: ${FAILED_MODES[*]}"
 fi
-log OK "All done (log: $RUN_LOG)"
+log OK "All done"
