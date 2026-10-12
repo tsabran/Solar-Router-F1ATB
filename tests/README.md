@@ -237,6 +237,49 @@ elles ne remplacent pas les tests du lecteur de production ci-dessus.
 6. **Simulation temporelle d'une journée complète** :
    - Suivi pas à pas de la courbe de production solaire, allumage d'appareils énergivores, passage nuageux et reprise après incident réseau, avec asservissement en boucle fermée du Triac.
 
+## OTA : interface de production et temps simule
+
+La branche autonome `ota-improve` est rebasee sur `build-automation`.
+`tests/ota/test_ota_ui.js` extrait et execute le script de `PageHtmlJS_OTA.h`
+dans une VM Node.js. Le DOM, jQuery/AJAX, les horloges, fetch et Cache Storage
+sont simules ; aucun package npm ni firmware transmis a un routeur.
+
+```bash
+./tests/run-tests.sh OTAUI   # 14 cas JavaScript
+./tests/run-tests.sh         # 9 cas C++ communs + 14 OTA sur cette branche
+```
+
+Couverture :
+
+- Initialisation, version compilee/ancienne et affichage WiFi/Ethernet.
+- Upload multipart, progression 0-100 % distincte de la validation serveur,
+  refus des fichiers absents/vides et protection contre la double soumission.
+- Reponse `OK`, `FAIL`/vide, erreur HTTP et deconnexion avant la reponse.
+  Les erreurs explicites permettent une nouvelle tentative.
+- Polling a 2 s avec `cache: no-store` : HTTP non-OK et erreurs reseau,
+  une seule sonde en vol, annulation apres 3 s, deadline globale de 80 s,
+  arret des timers et impossibilite de redirection par une reponse tardive.
+- Cache Storage vide, plusieurs caches, API absente et erreurs de lecture/
+  suppression : erreurs journalisees, puis redirection avec cache-buster.
+- Les timers sont avances virtuellement : le timeout de 80 s est verifie
+  a 79 999 ms et 80 000 ms, sans attendre ni contacter un serveur.
+
+Les tests ont revele et corrige la double soumission, l'upload vide, les sondes
+concurrentes et les redirections apres timeout. Les callbacks HTTP et
+l'effacement du cache suivent le comportement precedent.
+
+Limites : ces tests ne valident pas l'ecriture OTA en flash, le reboot physique,
+la disponibilite de jQuery via son CDN ni les implementations de cache des
+vrais navigateurs. Une reponse de la page d'accueil indique que le routeur
+est joignable, pas que la version souhaitee a effectivement ete installee.
+
+L'assemblage avec sequenceur, metriques et Enphase ajoute cette suite aux autres
+tests : les 120 cas passent (91 C++ et 29 JavaScript), avant la compilation.
+La compilation de cet assemblage avec ESP32 core 3.3.7 reussit :
+1 925 488 / 1 945 600 octets dans la partition applicative, soit seulement
+20 112 octets libres. Cette faible marge doit etre surveillee pour toute
+nouvelle feature. Aucun push ni flash n'est effectue par cette validation.
+
 ## 🌐 Mock Server Python (Tests sur table / réseau)
 
 Un serveur mock Python autonome simule l'ensemble des endpoints Enphase :

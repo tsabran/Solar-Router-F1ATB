@@ -46,9 +46,18 @@ const char *OtaHtml = R"====(
     <div id="prg">progression: 0%</div>
     <script>
           var BordsInverse=[".Bparametres",".Bota"];
+          var otaBusy = false;
           $('form').submit(function(e){
             e.preventDefault();
+            if (otaBusy) return;
+            var file = $('#fichier')[0].files[0];
+            if (!file || !file.size) {
+              $('#prg').html('Sélectionnez un fichier binaire non vide.');
+              console.error('[OTA] Aucun fichier binaire non vide sélectionné');
+              return;
+            }
             let data = new FormData($('#upload_form')[0]);
+            otaBusy = true;
             $('#fichier, #submit_btn').prop('disabled', true);
             $.ajax({
               url: '/update',
@@ -76,6 +85,7 @@ const char *OtaHtml = R"====(
                 } else {
                   $('#prg').html('✗ Échec de la mise à jour: ' + response);
                   console.error('[OTA] Échec:', response);
+                  otaBusy = false;
                   $('#fichier, #submit_btn').prop('disabled', false);
                 }
               },
@@ -88,6 +98,7 @@ const char *OtaHtml = R"====(
                 } else {
                   $('#prg').html('✗ Erreur HTTP ' + xhr.status);
                   console.error('[OTA] Erreur HTTP:', xhr.status, xhr.statusText);
+                  otaBusy = false;
                   $('#fichier, #submit_btn').prop('disabled', false);
                 }
               }
@@ -100,6 +111,10 @@ const char *OtaHtml = R"====(
             var attempts = 0;
             var dotCount = 0;
             var t0 = Date.now();
+            var finished = false;
+            var inFlight = false;
+            var controller = null;
+            var requestTimer;
 
             console.log('[OTA] Polling démarré —', baseUrl);
 
@@ -108,29 +123,57 @@ const char *OtaHtml = R"====(
               $('#prg').html('Redémarrage en cours' + '.'.repeat(dotCount));
             }, 500);
 
+            function stopPolling() {
+              finished = true;
+              clearInterval(pollTimer);
+              clearInterval(dotsTimer);
+              clearTimeout(timeoutTimer);
+              clearTimeout(requestTimer);
+              if (controller) controller.abort();
+            }
+
+            function pollingTimeout() {
+              stopPolling();
+              var elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+              console.error('[OTA] Timeout après ' + elapsed + 's — ESP32 non joignable');
+              $('#prg').html('⚠ Délai dépassé. <a href="/">Cliquez ici pour recharger manuellement.</a>');
+              otaBusy = false;
+              $('#fichier, #submit_btn').prop('disabled', false);
+            }
+
+            var timeoutTimer = setTimeout(pollingTimeout, 80000);
             var pollTimer = setInterval(function() {
+              if (finished || inFlight) return;
               attempts++;
               var elapsed = ((Date.now() - t0) / 1000).toFixed(1);
               if (attempts > maxAttempts) {
-                clearInterval(pollTimer);
-                clearInterval(dotsTimer);
-                console.error('[OTA] Timeout après ' + elapsed + 's — ESP32 non joignable');
-                $('#prg').html('⚠ Délai dépassé. <a href="/">Cliquez ici pour recharger manuellement.</a>');
+                pollingTimeout();
                 return;
               }
               console.log('[OTA] Tentative ' + attempts + '/' + maxAttempts + ' (' + elapsed + 's)...');
-              fetch(baseUrl + '/', { cache: 'no-store' })
+              inFlight = true;
+              var probe = new AbortController();
+              controller = probe;
+              var probeTimer = setTimeout(function() { probe.abort(); }, 3000);
+              requestTimer = probeTimer;
+              fetch(baseUrl + '/', { cache: 'no-store', signal: probe.signal })
                 .then(function(resp) {
+                  if (finished) return;
                   if (resp.ok) {
-                    clearInterval(pollTimer);
-                    clearInterval(dotsTimer);
+                    stopPolling();
                     console.log('[OTA] ESP32 joignable après ' + elapsed + 's — rechargement');
                     $('#prg').html('✓ ESP32 redémarré ! Rechargement...');
                     clearCachesAndReload(baseUrl + '/OTA');
                   }
                 })
                 .catch(function(err) {
+                  if (finished) return;
                   console.log('[OTA] Tentative ' + attempts + ' — pas de réponse (' + (err.message || 'network error') + ')');
+                })
+                .finally(function() {
+                  clearTimeout(probeTimer);
+                  inFlight = false;
+                  if (controller === probe) controller = null;
                 });
             }, 2000);
           }
