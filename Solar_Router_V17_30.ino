@@ -385,6 +385,8 @@
 #include "FS.h"
 #include "LittleFS.h"
 #include <ArduinoJson.h>
+#include "EnergyMetrics.h"
+#include "EnvoyEnergySample.h"
 #include "esp_partition.h"
 #include "esp_flash.h"
 #include "CST820.h"
@@ -717,6 +719,8 @@ bool RMSextIPauto = true;
 
 //Actions
 Action LesActions[LES_ACTIONS_LENGTH];  //Liste des actions
+energy_metrics::Counter CompteursPotentiels;
+bool EnergieAutonome[LES_ACTIONS_LENGTH] = {};
 volatile int NbActions = 0;
 byte ReacCACSI = 1;
 unsigned int Fpwm = 500;  // Frequence signaux PWM en Hz
@@ -994,6 +998,7 @@ void WiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {  //SR19 3.3.6+
 // SETUP
 //*******
 void setup() {
+  InitialiserObservationEnergie();
   startMillis = millis();
   previousLEDsMillis = startMillis;
 
@@ -1505,6 +1510,7 @@ void loop() {
   ArduinoOTA.handle();
   server.handleClient();
   LireSerial();
+  ActualiserEnergiePotentielle();
   // Vérifie si un nouveau client Telnet
   if (telnetServer.hasClient()) {
     if (telnetClient && telnetClient.connected()) {
@@ -1835,6 +1841,7 @@ void GestionOverproduction() {  // chaque 200ms (adaptation 5 fois par seconde)
     if (forceOff) {
       P.Type = 1;  //  on arrete
     }
+    EnergieAutonome[i] = P.Type == 3 || P.Type == 4;
     if (Actif[i] != MODE_INACTIF && P.Type > 1) {  // On ne traite plus le NO
       SeuilPw = float(P.Vmin);
       MaxTriacPw = float(P.Vmax);
@@ -1957,6 +1964,7 @@ void GestionOverproduction() {  // chaque 200ms (adaptation 5 fois par seconde)
   }
 
   LissageLong = lissage;
+  ActualiserCommandeEnergie();
   //Sortie vers port Série ou Telnet
   if (dispPw || dispAct) {
     String dispOut = "";

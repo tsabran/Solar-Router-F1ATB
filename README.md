@@ -6,6 +6,14 @@ Routeur photovoltaïque basé sur **ESP32**, permettant d’optimiser l’autoco
 
 ---
 
+## Suivi optionnel des bornes d'energie autonomes
+
+La branche avec sequenceur propose deux cumuls locaux de soutirage
+potentiellement evitable et d'injection potentiellement captable, pour un
+groupe resistif demi-sinus mesure par Envoy. Le suivi est desactive par
+defaut, sans persistance flash supplementaire ni changement de regulation.
+Voir les [choix, limites, activation et tests](docs/energie_potentielle.md).
+
 ## 🚀 Fonctionnalités principales
 
 - 🔋 **Optimisation automatique de l’autoconsommation**

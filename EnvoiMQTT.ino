@@ -110,6 +110,7 @@ void envoiVersMQTT() {
       sendMQTTDiscoveryMsg_global();
     }
     if (EnergieActiveValide) SendDataToHomeAssistant();  // envoie du Payload au State topic
+    PublierEnergiePotentielle();
     clientMQTT.loop();
   }
 }
@@ -265,6 +266,7 @@ void sendMQTTDiscoveryMsg_global() {
   DeviceToDiscover("EnergieJour_M_Injectee", "Energie Jour M Injectée", "Wh", "energy", "0");
 
   DeviceToDiscover("ESP32_On", "ESP32 On", "h", "duration", "2");
+  DiscoveryEnergiePotentielle();
 
   for (int i = 0; i < NbActions; i++) {
     ActType = "Ouverture_Relais_" + String(i);
@@ -453,4 +455,65 @@ void SendDataToHomeAssistant() {
 
   len += snprintf(value + len, sizeof(value) - len, "}");
   clientMQTT.publish(StateTopic, value);
+}
+
+void DiscoveryEnergiePotentielle() {
+  const char* keys[] = { "PotentialImportWh", "PotentialExportWh" };
+  const char* names[] = { "Soutirage potentiellement evitable", "Injection potentiellement captable" };
+  for (int i = 0; i < 2; ++i) {
+    JsonDocument discovery;
+    discovery["name"] = names[i];
+    discovery["uniq_id"] = MQTTdeviceName + "_" + keys[i];
+    discovery["stat_t"] = String(StateTopic) + "/regulation";
+    discovery["val_tpl"] = "{{ value_json." + String(keys[i]) + " }}";
+    discovery["unit_of_meas"] = "Wh";
+    discovery["device_class"] = "energy";
+    discovery["state_class"] = "total_increasing";
+    discovery["suggested_display_precision"] = 3;
+    discovery["expire_after"] = MQTTRepet * 2 + 10;
+    discovery["availability_mode"] = "all";
+    JsonArray availability = discovery["availability"].to<JsonArray>();
+    availability.add<JsonObject>()["topic"] = AvailableTopic;
+    JsonObject measurement = availability.add<JsonObject>();
+    measurement["topic"] = String(StateTopic) + "/regulation";
+    measurement["value_template"] = "{{ 'online' if value_json.Available else 'offline' }}";
+    JsonDocument device;
+    if (deserializeJson(device, DEVICE)) {
+      StockMessage("Erreur discovery energie : device JSON invalide");
+      return;
+    }
+    discovery["device"] = device.as<JsonObject>();
+    discovery["json_attr_t"] = String(StateTopic) + "/regulation";
+    String payload;
+    serializeJson(discovery, payload);
+    String topic = String(PrefixMQTT) + SSR + "/" + MQTTdeviceName + "_" + keys[i] + "/config";
+    if (!clientMQTT.publish(topic.c_str(), payload.c_str()))
+      StockMessage("Erreur publication discovery energie");
+  }
+}
+
+void PublierEnergiePotentielle() {
+  ActualiserEnergiePotentielle();
+  const uint32_t now = millis();
+  const bool fresh = CompteursPotentiels.fresh(now);
+  JsonDocument state;
+  state["PotentialImportWh"] = serialized(String(CompteursPotentiels.importWh, 6));
+  state["PotentialExportWh"] = serialized(String(CompteursPotentiels.exportWh, 6));
+  state["Available"] = ConfigurationEnergieValide && Source == "Enphase" && fresh;
+  state["Status"] = EtatEnergie;
+  state["Eligible"] = CommandeEnergieValide && fresh && Source == "Enphase";
+  state["GridW"] = CompteursPotentiels.gridW;
+  state["PotentialImportW"] = CompteursPotentiels.importW;
+  state["PotentialExportW"] = CompteursPotentiels.exportW;
+  state["CommandedW"] = CommandeEnergie.commandedW;
+  state["HeadroomW"] = CommandeEnergie.headroomW;
+  state["Integration"] = "source_power_sample_hold";
+  state["SourcePeriodMs"] = CompteursPotentiels.sourcePeriodMs;
+  state["Group"] = GroupeEnergie;
+  state["UptimeMs"] = now;
+  String payload;
+  serializeJson(state, payload);
+  String topic = String(StateTopic) + "/regulation";
+  if (!clientMQTT.publish(topic.c_str(), payload.c_str()))
+    StockMessage("Erreur publication energie potentielle");
 }

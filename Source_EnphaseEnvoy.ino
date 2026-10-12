@@ -6,6 +6,8 @@
 #define TIMEOUT_CONNECT 4000
 #define TOKEN_MIN_LENGTH 200
 
+#include "EnvoyReadObserver.h"
+
 uint32_t ipToInt(IPAddress ip) {                                                                  //SR19
   return uint32_t(ip[0] << 24) | uint32_t(ip[1] << 16) | uint32_t(ip[2] << 8) | uint32_t(ip[3]);  //SR19
 }
@@ -249,6 +251,7 @@ uint32_t LectureEnphase() {
 
   float PactReseau = 0.0f;
   float PvaReseau = 0.0f;
+  EnvoyReadObserver energyObserver;
   long whDlvdCum = 0L;  // on perd les decimals après la virgule avec un type long
   long whRcvdCum = 0L;
   if (TokenEnphase.length() <= TOKEN_MIN_LENGTH) {  // MC001 Controle longueur du Token
@@ -357,6 +360,7 @@ uint32_t LectureEnphase() {
           Intensite_M = ValJson("current", receivedDataBuf);
         }
       } else if (nGlobalIndex == 1) {
+        energyObserver.header(receivedDataBuf);
         if (!bMonoPhase) {
           PactReseau = ValJson("activePower", receivedDataBuf);
           PactConso_M = PactReseau + PactProd;  // dans l'hypothese qu'il n'y a pas de l'énergie fournit par une batterie !
@@ -390,6 +394,7 @@ uint32_t LectureEnphase() {
 
           if (bMonoPhase) {
             //StockMessage(receivedDataBuf);
+            energyObserver.phase(receivedDataBuf);
             PactReseau = ValJson("activePower", receivedDataBuf);
             PactConso_M = PactReseau + PactProd;  // dans l'hypothese qu'il n'y a pas de l'énergie fournit par une batterie !
             PvaReseau = ValJson("apparentPower", receivedDataBuf);
@@ -440,6 +445,7 @@ uint32_t LectureEnphase() {
   }
 
   PactReseau = PfloatMax(PactReseau);
+  energyObserver.complete();
   if (PactReseau < 0) {
     PuissanceS_M_inst = 0;
     PuissanceI_M_inst = int(-PactReseau);

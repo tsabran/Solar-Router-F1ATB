@@ -50,6 +50,7 @@ function CreerAction(NumAction, Titre) {
         ForceOuvre: 100,
         IdxSequenceur: -1,
         PuissanceCharge: 0,
+        SuiviEnergie: false,
         Periodes: [{
                     Hfin: 2400,
                     Type: type,
@@ -118,6 +119,7 @@ function TracePlanning(iAct) {
     S += "<div id='groupeSequenceur" + iAct + "' class='les_select' style='display:none;'>";
     S += "<div class='TitZone'>S&eacute;quenceur de relais</div>";
     S += "<div style='padding:4px;color:#aaa;font-size:0.9em;'>Ce mode distribue l'ouverture PID vers les relais gérés. Aucune sortie GPIO directe.</div>";
+    S += "<div><label title='Estime le soutirage potentiellement &eacute;vitable et l&apos;injection potentiellement captable pendant la r&eacute;gulation autonome, hors for&ccedil;age. Bornes calcul&eacute;es selon la commande, pas une mesure de pertes r&eacute;elles ni de l&apos;&eacute;nergie absorb&eacute;e. Disponible avec Envoy et un seul groupe de r&eacute;sistances en demi-sinus, avec puissances nominales renseign&eacute;es. Thermostat non mesur&eacute;.'><input type='checkbox' id='suiviEnergie" + iAct + "'>Estimer les pertes d&apos;&eacute;nergie potentiellement &eacute;vitables</label></div>";
     S += "</div>";
 
     // Panneau relais séquencé : sélecteur de séquenceur parent + puissance nominale
@@ -130,7 +132,7 @@ function TracePlanning(iAct) {
     S += "<div id='relaisSequence" + iAct + "' class='les_select' style='display:none;'>";
     S += "<div class='TitZone'>Relais s&eacute;quenc&eacute;</div>";
     S += "<div style='display:inline-block'><span>S&eacute;quenceur<br><select id='selectSequenceur" + iAct + "' onchange='checkDisabled();' title='S&eacute;quenceur qui distribue la puissance vers ce relais s&eacute;quenc&eacute;'>" + optionsSequenceur + "</select></span></div>";
-    S += "<div style='display:inline-block'><span>Puissance de la charge&nbsp;(W)<br><input type='number' class='tm' id='puissanceCharge" + iAct + "' min='0' max='10000' value='0' title='Puissance nominale de cette charge en W. 0 = 1000 W par d&eacute;faut.'></span></div>";
+    S += "<div style='display:inline-block'><span>Puissance de la charge&nbsp;(W)<br><input type='number' class='tm' id='puissanceCharge" + iAct + "' min='0' max='10000' value='0' title='Puissance nominale de cette charge r&eacute;sistive en W. 0 = 1000 W pour la r&eacute;gulation seulement ; suivi &eacute;nergie indisponible.'></span></div>";
     S += "</div>";
 
     // Curseurs PID
@@ -194,6 +196,7 @@ function TracePlanning(iAct) {
         GH("sensiKd" + iAct, action.Kd);
         
         GID("PID" + iAct).checked = action.PID == 1;
+        GID("suiviEnergie" + iAct).checked = action.SuiviEnergie === true;
 
         // Champs séquenceur de relais
         if (action.IdxSequenceur !== undefined) {
@@ -1078,6 +1081,7 @@ function Send_Values(){
         action.IdxSequenceur = selectSequenceur ? (parseInt(selectSequenceur.value, 10) || -1) : -1;
         const champPuissance = GID("puissanceCharge" + iAct);
         action.PuissanceCharge = champPuissance ? (parseInt(champPuissance.value, 10) || 0) : 0;
+        action.SuiviEnergie = action.Actif === 6 && GID("suiviEnergie" + iAct).checked;
 
         // Coefficients PID
         action.Kp = parseInt(GID("sliderKp" + iAct).value, 10) || 0;

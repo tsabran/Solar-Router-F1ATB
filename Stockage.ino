@@ -275,6 +275,7 @@ void DeserializeConfiguration(String json) {
     return;
   }
 
+  InvaliderCommandeEnergie();
   String V = Version;
 
   int Versioncompile = round(100 * V.toFloat());
@@ -377,6 +378,7 @@ void DeserializeConfiguration(String json) {
     LesActions[iAct].ForceOuvre = !obj["ForceOuvre"].isNull() ? obj["ForceOuvre"] : 100;
     LesActions[iAct].IdxSequenceur  = !obj["IdxSequenceur"].isNull()  ? (int)obj["IdxSequenceur"]  : -1;
     LesActions[iAct].PuissanceCharge = !obj["PuissanceCharge"].isNull() ? (int)obj["PuissanceCharge"] : 0;
+    LesActions[iAct].SuiviEnergie = obj["SuiviEnergie"] | false;
     LesActions[iAct].NbPeriode = obj["NbPeriode"];
 
     Hdeb = 0;
@@ -510,6 +512,7 @@ String SerializeConfiguration() {
     obj["ForceOuvre"] = LesActions[iAct].ForceOuvre;
     obj["IdxSequenceur"]  = LesActions[iAct].IdxSequenceur;
     obj["PuissanceCharge"] = LesActions[iAct].PuissanceCharge;
+    obj["SuiviEnergie"] = LesActions[iAct].SuiviEnergie;
     obj["Repet"] = LesActions[iAct].Repet;
     obj["Tempo"] = LesActions[iAct].Tempo;
     obj["Kp"] = LesActions[iAct].Kp;
