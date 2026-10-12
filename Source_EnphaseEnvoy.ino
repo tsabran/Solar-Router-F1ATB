@@ -225,20 +225,6 @@ void PurgeClientBuffer(NetworkClientSecure& client)
 
 
 
-String ExtractEnvoySessionId(const String& httpHeader)
-{
-  int p = httpHeader.indexOf("sessionId=");
-  if (p < 0)
-    return "";
-
-  p += 10; // strlen("sessionId=")
-
-  int q = httpHeader.indexOf(';', p);
-  if (q < 0)
-    q = httpHeader.length();
-
-  return httpHeader.substring(p, q);
-}
 
 
 
@@ -259,18 +245,26 @@ bool CaptureEnvoySessionIdFromHeaders(NetworkClientSecure& pClient, unsigned lon
       return true;
     }
 
-    String httpHeader = String(httpHeaderBuf, httpHeaderLength);
-    httpHeader.trim();
-    if (httpHeader.length() == 0)
+    // Trim le \r final en place (ReadBufferUntilChar s'arrete sur \n, peut laisser un \r)
+    while (httpHeaderLength > 0 &&
+           (httpHeaderBuf[httpHeaderLength - 1] == '\r' ||
+            httpHeaderBuf[httpHeaderLength - 1] == ' ')) {
+      httpHeaderBuf[--httpHeaderLength] = '\0';
+    }
+
+    if (httpHeaderLength == 0)
       return false; //all headers have been read
 
-    if(httpHeader.startsWith("Set-Cookie:"))
-    {
-      String newSessionId = ExtractEnvoySessionId(httpHeader);
-      if(newSessionId != "")
-      {
-        EnvoySessionIdCookie = newSessionId;
-	      StockMessage("Envoy local sessionId successfully cached");
+    if (strncmp(httpHeaderBuf, "Set-Cookie:", 11) == 0) {
+      const char* p = strstr(httpHeaderBuf, "sessionId=");
+      if (p) {
+        p += 10; // strlen("sessionId=")
+        const char* q = strchr(p, ';');
+        size_t len = q ? (size_t)(q - p) : strlen(p);
+        if (len > 0) {
+          EnvoySessionIdCookie = String(p, (unsigned int)len);
+          StockMessage("Envoy local sessionId successfully cached");
+        }
       }
     }
   }
@@ -293,10 +287,23 @@ void LectureEnphase()
   long whDlvdCum = 0L;  // on perd les decimals après la virgule avec un type long
   long whRcvdCum = 0L; 
   
-  String host = IP2String(RMSextIP);
-  String baseRequest;
-  baseRequest = "/ivp/meters/readings HTTP/1.1\r\nHost: " + host + "\r\nAccept: application/json\r\nConnection: keep-alive\r\n";
-  static NetworkClientSecure client; 
+  // Buffers statiques pour host et baseRequest : reconstruits seulement si l'IP change.
+  // Evite 7 String temporaires + 1 concat heap à chaque appel (toutes les secondes).
+  static char s_hostBuf[16] = {};
+  static char s_baseRequestBuf[128] = {};
+  static unsigned long s_lastRMSextIP = 0;
+  if (s_lastRMSextIP != RMSextIP) {
+    s_lastRMSextIP = RMSextIP;
+    snprintf(s_hostBuf, sizeof(s_hostBuf), "%u.%u.%u.%u",
+      (unsigned)((RMSextIP >> 24) & 0xFF), (unsigned)((RMSextIP >> 16) & 0xFF),
+      (unsigned)((RMSextIP >>  8) & 0xFF), (unsigned)( RMSextIP         & 0xFF));
+    snprintf(s_baseRequestBuf, sizeof(s_baseRequestBuf),
+      "/ivp/meters/readings HTTP/1.1\r\nHost: %s\r\nAccept: application/json\r\nConnection: keep-alive\r\n",
+      s_hostBuf);
+  }
+  const char* host = s_hostBuf;
+  const char* baseRequest = s_baseRequestBuf;
+  static NetworkClientSecure client;
 
   constexpr uint32_t TOKEN_REFRESH_MS = 30UL * 24UL * 60UL * 60UL * 1000UL;
   if (TokenEnphase.length() > 50 && EnphaseUser != "") 
@@ -342,7 +349,7 @@ void LectureEnphase()
         client.setInsecure();     // skip verification
         client.setTimeout(TIMEOUT_CONNECT);
         unsigned long nConnectStarted = millis();
-        if (!client.connect(host.c_str(), 443)) 
+        if (!client.connect(host, 443))
 	      {
           StockMessage(String("Connection failed to Envoy-S server! : https://") + host);
           EnvoyCompteErreurEchecConnect += 1;
@@ -358,11 +365,27 @@ void LectureEnphase()
       unsigned long nRequestStarted = millis();
 
       bool bUseCookie = (EnvoySessionIdCookie != "");
-      if(bUseCookie) {
-        client.println("GET " + baseRequest + "Cookie: sessionId=" + EnvoySessionIdCookie + "\r\n\r\n");
-      } else {
-        EnvoyCompteTentativesRequeteAuthBearer += 1;
-        client.println("GET " + baseRequest + "Authorization: Bearer " + TokenEnphase + "\r\n\r\n");
+      // Requete construite dans un buffer statique pour eviter les concat String sur le heap
+      {
+        static char s_reqLine[1024];
+        int n;
+        if (bUseCookie) {
+          n = snprintf(s_reqLine, sizeof(s_reqLine), "GET %sCookie: sessionId=%s\r\n\r\n",
+            baseRequest, EnvoySessionIdCookie.c_str());
+        } else {
+          EnvoyCompteTentativesRequeteAuthBearer += 1;
+          n = snprintf(s_reqLine, sizeof(s_reqLine), "GET %sAuthorization: Bearer %s\r\n\r\n",
+            baseRequest, TokenEnphase.c_str());
+        }
+        if (n > 0 && (size_t)n < sizeof(s_reqLine)) {
+          client.println(s_reqLine);
+        } else {
+          // Token/cookie anormalement long : repli sur String plutot que d'envoyer une requete tronquee
+          StockMessage(String("Envoy request line too long (") + n + "), String fallback");
+          client.println(String("GET ") + baseRequest + (bUseCookie
+            ? String("Cookie: sessionId=") + EnvoySessionIdCookie
+            : String("Authorization: Bearer ") + TokenEnphase) + "\r\n\r\n");
+        }
       }
 
       static char statusLine[256]; // 'static' pour en faire une variable globale et eviter de saturer la pile
