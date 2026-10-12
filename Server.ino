@@ -606,12 +606,21 @@ void handlePara() {
   Serial.println("  Attendue :" + CleAccesRef);
   previousTempMillis = millis() - 120000;
 }
+// Secrets are never sent to the browser: /ParaFixe masks them and /ParaNew keeps the
+// stored value when it receives the mask back unchanged.
+static const char SECRET_MASK[] = "********";
+static const char *const SECRET_KEYS[] = { "password", "EnphasePwd", "MQTTPwd" };
+
 void handleParaNew() {
   String EtatGpioInitial = String(Fpwm);
   for (int i = 1; i < NbActions; i++) {
     EtatGpioInitial += String(LesActions[i].Gpio) + String(LesActions[i].OutOn) + String(LesActions[i].OutOff);
   }
+  String oldPassword = password, oldEnphasePwd = EnphasePwd, oldMQTTPwd = MQTTPwd;
   DeserializeConfiguration(server.arg("plain"));
+  if (password == SECRET_MASK) password = oldPassword;
+  if (EnphasePwd == SECRET_MASK) EnphasePwd = oldEnphasePwd;
+  if (MQTTPwd == SECRET_MASK) MQTTPwd = oldMQTTPwd;
   server.send(200, "application/json", "{\"new_config\":\"ok\"}");
   int j = 1;
   for (int i = 1; i < LES_ROUTEURS_MAX; i++) {
@@ -665,15 +674,23 @@ void handleParaCommunJS() {
 }
 void handleParaFixe() {  //Paramètres stockés en fichier
   File file = LittleFS.open("/parametres.json", "r");
-  String json = file.readString();
+  if (!file) { server.send(404, "application/json", "{}"); return; }
+  JsonDocument conf;
+  DeserializationError error = deserializeJson(conf, file);
   file.close();
+  if (error) {
+    server.send(500, "application/json", "{}");
+    return;
+  }
   // Override VersionTexte avec la valeur compile-time (non stockée)
-  JsonDocument doc;
-  deserializeJson(doc, json);
-  doc["VersionTexte"] = String(VersionFull);
-  String out;
-  serializeJson(doc, out);
-  server.send(200, "application/json", out);
+  conf["VersionTexte"] = String(VersionFull);
+  for (const char *key : SECRET_KEYS) {
+    const char *value = conf[key];
+    if (value && *value) conf[key] = SECRET_MASK;
+  }
+  String json;
+  serializeJson(conf, json);
+  server.send(200, "application/json", json);
 }
 void handleajaxRAZhisto() {
   RAZ_Histo_Conso();
@@ -1054,4 +1071,3 @@ void envoyerHistoriqueEnergie(WebServer &serverRef) {
   //envoie le marqueur "0"
   writer.finalise();
 }
-
