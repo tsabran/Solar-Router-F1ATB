@@ -31,7 +31,6 @@ Options:
   --keep-clone      Keep the temporary clone in .tmp-build/ for inspection
   --no-ref          Do not save the merged tree as refs/builds/<tag> in the repository
   --no-fetch        --localrelease: use the current origin/main without fetching
-  --fresh-core      Passed to build-binary.sh (recompile the ESP32 core)
   --list-branches   List local branches and whether the config selects them, then exit
   -h, --help        Show this help
 
@@ -61,7 +60,6 @@ KEEP_CLONE=0
 SAVE_REF=1
 DO_FETCH=1
 LIST_BRANCHES=0
-BUILD_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --localdev) MODES+=(localdev); shift ;;
@@ -74,7 +72,6 @@ while [[ $# -gt 0 ]]; do
     --keep-clone) KEEP_CLONE=1; shift ;;
     --no-ref) SAVE_REF=0; shift ;;
     --no-fetch) DO_FETCH=0; shift ;;
-    --fresh-core) BUILD_ARGS+=(--fresh-core); shift ;;
     --list-branches) LIST_BRANCHES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
@@ -352,7 +349,7 @@ run_build() {
   local result_file="$tmp/result" release_dir
   if env BUILD_TAG="$tag" BUILD_GIT_SHA="$(git -C "$clone" rev-parse --short=8 HEAD)" \
        SR_SOURCE_SECTION="$section" SR_SOURCE_PATCH="$patch" SR_RESULT_FILE="$result_file" \
-       "$SCRIPT_DIR/build-binary.sh" --workdir "$clone" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"}; then
+       "$SCRIPT_DIR/build-binary.sh" --workdir "$clone"; then
     release_dir="$(cat "$result_file")"
     cp "$RUN_LOG" "$release_dir/merge-and-build.log"
     log OK "$tag: $release_dir"

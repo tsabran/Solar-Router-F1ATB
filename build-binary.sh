@@ -23,8 +23,6 @@ Options:
                    contains the main .ino, else the directory of this script)
   --profile NAME   arduino-cli profile from sketch.yaml (default: default_profile, else esp32)
   --no-profile     Ignore sketch.yaml and use $FQBN with the globally installed core/libraries
-  --fresh-core     Use an empty core cache (recompiles the ESP32 core, ~+1 min; the
-                   "Compile Date/Time" printed at boot is then the real one)
   -h, --help       Show this help
 
 Environment variables:
@@ -44,14 +42,12 @@ USAGE
 WORK_DIR="${WORKDIR:-}"
 PROFILE="${SKETCH_PROFILE:-}"
 USE_PROFILE=1
-FRESH_CORE=0
 MAIN_INO=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --workdir) [[ -n "${2:-}" ]] || die "--workdir requires a path"; WORK_DIR="$2"; shift 2 ;;
     --profile) [[ -n "${2:-}" ]] || die "--profile requires a name"; PROFILE="$2"; shift 2 ;;
     --no-profile) USE_PROFILE=0; shift ;;
-    --fresh-core) FRESH_CORE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "Unknown option: $1 (see --help)" ;;
     *) MAIN_INO="$1"; shift ;;
@@ -219,19 +215,16 @@ log INFO "Release dir: $RELEASE_DIR"
 # Compile
 # ---------------------------------------------------------------------------
 sr_arduino_network_timeout
-COMPILE_ENV=()
-if [[ "$FRESH_CORE" -eq 1 ]]; then
-  COMPILE_ENV=(ARDUINO_BUILD_CACHE_PATH="$TMP_ROOT/build-cache")
-  log INFO "Fresh core cache: $TMP_ROOT/build-cache"
-fi
+# A per-build --build-path also makes arduino-cli recompile the core instead of reusing the
+# cached core.a, so the "Compile Date/Time" printed at boot is the real build time.
 COMPILE_JSON="$TMP_ROOT/compile.json"
 COMPILE_CMD=(arduino-cli compile "${PROFILE_ARGS[@]}" --build-path "$TMP_ROOT/build-path"
   --output-dir "$TMP_ROOT/out" --json "$STAGE_DIR")
 compile_rc=0
 compile_start="$(date +%s)"
 log START "arduino-cli compile (output shown at the end)"
-printf '%b+ %s%b\n' "$C_CMD" "${COMPILE_ENV[*]+${COMPILE_ENV[*]} }${COMPILE_CMD[*]}" "$C_RESET"
-env "${COMPILE_ENV[@]+"${COMPILE_ENV[@]}"}" "${COMPILE_CMD[@]}" > "$COMPILE_JSON" || compile_rc=$?
+printf '%b+ %s%b\n' "$C_CMD" "${COMPILE_CMD[*]}" "$C_RESET"
+"${COMPILE_CMD[@]}" > "$COMPILE_JSON" || compile_rc=$?
 python3 - "$COMPILE_JSON" <<'PY' || true
 import json, sys
 try:
