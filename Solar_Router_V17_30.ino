@@ -1,7 +1,9 @@
 #define Version "17.30"  //
 #define HOSTNAME "RMS-ESP32-"
 
-#ifdef BUILD_TAG
+#if defined(BUILD_TAG) && defined(BUILD_GIT_SHA)  // injectés par build-binary.sh via build_opt.h
+#define VersionFull Version " (" BUILD_TAG " " BUILD_GIT_SHA ")"
+#elif defined(BUILD_TAG)
 #define VersionFull Version " (" BUILD_TAG ")"
 #else
 #define VersionFull Version
