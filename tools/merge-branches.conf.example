@@ -1,3 +1,4 @@
+# Copy to merge-branches.conf in the main worktree (not versioned) and adapt.
 # Branches merged by merge-and-build.sh, in this order, on top of the base.
 # One branch per line; '#' starts a comment. Names are resolved as local branch,
 # then origin/<name>, then any commit-ish (tag, sha).

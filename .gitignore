@@ -12,5 +12,6 @@ releases/
 *.token
 .env
 
-# Local deployment settings (see tools/flash.conf.example)
+# Local build/deployment settings (see tools/*.conf.example)
 flash.conf
+merge-branches.conf

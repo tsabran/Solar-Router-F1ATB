@@ -26,7 +26,8 @@ Bases (combinable, --localdev is the default):
 Options:
   --workdir PATH    Source repository/worktree (default: current directory if it is a git
                     repo, else the directory of this script)
-  --config FILE     Branch list (default: $SCRIPT_DIR/merge-branches.conf)
+  --config FILE     Branch list (default: merge-branches.conf in the main worktree, not
+                    versioned, see tools/merge-branches.conf.example; or SR_MERGE_CONF)
   --no-merge        Build the base only (ignore config and arguments)
   --dry-run         Resolve refs and test the merges in a temporary clone, without compiling
   --keep-clone      Keep the temporary clone in .tmp-build/ for inspection
@@ -53,7 +54,7 @@ USAGE
 MODES=()
 BASE_REF=""
 WORK_DIR=""
-CONFIG_FILE="$SCRIPT_DIR/merge-branches.conf"
+CONFIG_FILE="${SR_MERGE_CONF:-}"
 NO_MERGE=0
 DRY_RUN=0
 KEEP_CLONE=0
@@ -90,14 +91,23 @@ fi
 REPO_ROOT="$(git -C "$WORK_DIR" rev-parse --show-toplevel 2>/dev/null)" || die "Not a git repository: $WORK_DIR"
 SR_ROOT="$(sr_output_root "$REPO_ROOT")"
 export SR_OUTPUT_ROOT="$SR_ROOT"
-[[ "$CONFIG_FILE" = /* ]] || CONFIG_FILE="$PWD/$CONFIG_FILE"
+if [[ -z "$CONFIG_FILE" ]]; then
+  CONFIG_FILE="$SR_ROOT/merge-branches.conf"
+elif [[ "$CONFIG_FILE" != /* ]]; then
+  CONFIG_FILE="$PWD/$CONFIG_FILE"
+fi
+
+# Checked outside read_config: a die inside $(...) or <(...) would not stop the script.
+check_config() {
+  [[ -f "$CONFIG_FILE" ]] || die "Config file not found: $CONFIG_FILE (copy tools/merge-branches.conf.example there, or pass branches as arguments)"
+}
 
 read_config() {
-  [[ -f "$CONFIG_FILE" ]] || die "Config file not found: $CONFIG_FILE"
   sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$CONFIG_FILE" | grep -v '^$' || true
 }
 
 if [[ "$LIST_BRANCHES" -eq 1 ]]; then
+  check_config
   selected="$(read_config)"
   echo "Config: $CONFIG_FILE"
   git -C "$REPO_ROOT" for-each-ref --sort=-committerdate \
@@ -119,6 +129,7 @@ else
     BRANCHES=("$@")
     BRANCH_SOURCE="arguments"
   else
+    check_config
     while IFS= read -r b; do BRANCHES+=("$b"); done < <(read_config)
   fi
 fi

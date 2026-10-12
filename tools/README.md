@@ -12,15 +12,15 @@ du sketch (elles fonctionnent aussi depuis n'importe quel répertoire du dépôt
 | `tools/merge-and-build.sh` | Clone temporaire, merges, compilation, archivage, `refs/builds/<tag>` |
 | `tools/build-binary.sh` | Compilation d'un répertoire de sources et archivage dans `releases/` |
 | `tools/flash.sh` | Flash série (esptool) ou OTA web (`/update`) d'une release archivée |
-| `tools/merge-branches.conf` | Liste ordonnée des branches à merger |
+| `tools/merge-branches.conf.example` | Modèle de la liste ordonnée des branches à merger |
 | `tools/flash.conf.example` | Modèle de configuration locale de `flash.sh` |
 | `tools/lib/` | Fonctions communes (`build-lib.sh`), génération du manifeste (`write-manifest.py`) |
 | `sketch.yaml` | Profil arduino-cli : plateforme et bibliothèques figées (reste à la racine du sketch) |
 | `partitions.csv` | Table de partitions (« Partition Scheme → Custom » dans l'IDE) |
 
 Fichiers locaux, non versionnés, à la racine du worktree principal : `releases/` (binaires,
-manifestes, logs, `DEPLOYMENTS.log`), `flash.conf` (cibles de flash) et `.tmp-build/`
-(répertoire de travail temporaire).
+manifestes, logs, `DEPLOYMENTS.log`), `merge-branches.conf` (branches à merger), `flash.conf`
+(cibles de flash) et `.tmp-build/` (répertoire de travail temporaire).
 
 ## Installation de la toolchain
 
@@ -80,8 +80,9 @@ modifie ni les branches ni le working tree.
 | localrelease | `--localrelease` | `origin/main` après `git fetch origin main` |
 | quelconque | `--base REF` | branche, tag ou commit, sans modifications locales |
 
-Les branches de `tools/merge-branches.conf` (ou passées en arguments, qui remplacent le fichier)
-sont ensuite mergées dans l'ordre, en `--no-ff`, par SHA résolu au démarrage.
+Les branches de `merge-branches.conf` (racine du worktree principal, ignoré par git, modèle
+`tools/merge-branches.conf.example`, autre chemin via `--config` ou `SR_MERGE_CONF`), ou passées
+en arguments (qui remplacent le fichier), sont ensuite mergées dans l'ordre, en `--no-ff`, par SHA résolu au démarrage.
 
 ```bash
 tools/merge-and-build.sh --list-branches              # branches locales, sélectionnées ou non
