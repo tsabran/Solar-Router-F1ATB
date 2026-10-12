@@ -1,0 +1,54 @@
+[
+  {
+    "timestamp": 1718000000,
+    "eid": 704643072,
+    "voltage": 401.5,
+    "activePower": 6000.0,
+    "apparentPower": 6050.0,
+    "reactivePower": 300.0,
+    "current": 8.7,
+    "channels": [
+      {
+        "eid": 1778384896,
+        "timestamp": 1718000000,
+        "activePower": 2000.0,
+        "voltage": 231.8,
+        "current": 8.7
+      },
+      {
+        "voltage": 231.8,
+        "current": 8.7
+      },
+      {
+        "voltage": 231.8,
+        "current": 8.7
+      }
+    ]
+  },
+  {
+    "timestamp": 1718000000,
+    "eid": 704643328,
+    "voltage": 401.8,
+    "activePower": -3600.0,
+    "apparentPower": 3650.0,
+    "reactivePower": -150.0,
+    "current": 5.2,
+    "freq": 50.01,
+    "actEnergyDlvd": 890000.0,
+    "actEnergyRcvd": 650000.0,
+    "channels": [
+      {
+        "voltage": 231.5,
+        "current": 5.2
+      },
+      {
+        "voltage": 232.0,
+        "current": 5.1
+      },
+      {
+        "voltage": 231.9,
+        "current": 5.3
+      }
+    ]
+  }
+]
