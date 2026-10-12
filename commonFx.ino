@@ -1,5 +1,5 @@
 #include <Arduino.h>
-void SplitS(String Str, String &Before, String Separ, String &After) {
+void SplitS(String Str, String &Before, const String& Separ, String &After) {  // Str par valeur : appels avec Str == Before (EcranLCD)
   int p = Str.indexOf(Separ);
   Before = Str.substring(0, p);
   After = Str.substring(p + 1);
@@ -15,7 +15,9 @@ String IP2String(unsigned long IP) {
   for (int i = 0; i < 4; i++) {  //Pour eviter corruption données entre coeur 0 et coeur1 (arr en variable local)
     arrIP[i] = arr[i];           //Pour le WIFI au setup
   }
-  return String(arr[3]) + "." + String(arr[2]) + "." + String(arr[1]) + "." + String(arr[0]);
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%u.%u.%u.%u", arr[3], arr[2], arr[1], arr[0]);
+  return String(buf);
 }
 unsigned long String2IP(String S) {
   unsigned long IP = 0;
@@ -32,12 +34,9 @@ unsigned long String2IP(String S) {
 
 //Gestion couleurs
 String ULtoHex(unsigned long x) {
-  char buffer[15];
-  ltoa(x, buffer, 16);
-  String S = "000000" + String(buffer);
-  int p = S.length();
-  S = "#" + S.substring(p - 6);  //Format pour HTML color
-  return S;
+  char buf[8];
+  snprintf(buf, sizeof(buf), "#%06lx", x & 0xFFFFFFUL);
+  return String(buf);
 }
 unsigned long ConvCouleur(String V) {  //Notation CSS en UL
   return strtoul(V.c_str(), NULL, 16);
@@ -183,12 +182,13 @@ H ou ?       | pour avoir cette aide
 
 
 void MessageCommandes() {
-  String M = helpSerial;
-  String Before;
-  while (M.indexOf("\n") >= 0) {
-    SplitS(M, Before, "\n", M);
-    TelnetPrintln(Before);
+  const char* p = helpSerial;
+  const char* nl;
+  while ((nl = strchr(p, '\n')) != nullptr) {
+    TelnetPrintln(String(p, (unsigned int)(nl - p)));
+    p = nl + 1;
   }
+  if (*p) TelnetPrintln(String(p));
 }
 
 //*************
