@@ -2,7 +2,8 @@
 
 ## Base et portee
 
-Implementation rebasee sur `feature/mode-sequenceur` (base `86384b0`, version 17.26).
+Implementation rebasee sur `feature/mode-sequenceur` (base `c841cd1`, version 17.26),
+incluant le socle de tests de `build-automation`.
 Ce n'est pas une reproduction du firmware personnalise 17.25
 `localdev-20260629-170300`. Un portage et une validation sur ce firmware restent
 necessaires avant toute installation. Aucun reglage du RMS en service n'est
@@ -259,24 +260,37 @@ phases de signes opposes, plafonds, 0/40/100 %, aggregation
 des trois resistances, puissance manquante/mode non supporte, transitions
 autonome/exclusion, donnees repetees/perimees/invalides, interruption, wrap
 de `millis()`, notification retardee, reset au boot et parseur Envoy.
-Un second executable inclut directement l'observateur firmware avec des
+La suite `MetricsFirmware` inclut directement l'observateur firmware avec des
 entrees simulees : groupe et puissances explicites, tous les forcages ON/OFF,
 ON programme/hors autonomie, sonde invalide, modes/GPIO non supportes,
 selection multiple, source non supportee, et non-ecriture des commandes.
+Les groupes retenus doivent suivre les memes restrictions que le regulateur :
+parent d'index strictement positif et autonome (`IdxSequenceur == -1`).
+Un groupe sur le Triac ou avec une reference negative invalide est rejete.
 Une horloge simulee verifie aussi l'expiration de l'horodatage source
 sans nouvelle reponse HTTP, independamment du delai monotone de reception.
 Le point d'observation commun est teste avec des chaines et buffers `char[]`,
 la selection globale/canal, les sorties anticipees, le canal invalide et
 l'absence de callbacks quand la feature n'est pas presente.
 
+Les anciens executables sont maintenant decouverts par le runner commun dans
+`tests/metrics/`, avec assertions toujours actives. La suite complete contient
+74 cas : 34 cas C++ et 4 cas JavaScript propres aux metriques, plus les 36 cas
+Enphase/sequenceur herites. Les suites additionnelles verifient les fonctions
+reelles de publication MQTT, l'opt-in web, une integration de reference sur
+une heure et le couplage au regulateur. Une simulation de 60 s compare les
+commandes, integrateurs et sorties avec/sans suivi, avec mesures toutes les
+2 s ; aucune modification de ces commandes n'est attendue.
+
 ```sh
-for test in energy_metrics_test energy_firmware_test; do
-  clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
-    -I "$HOME/Documents/Arduino/libraries/ArduinoJson/src" \
-    "tests/$test.cpp" -o "/tmp/$test" || exit 1
-  "/tmp/$test" || exit 1
-done
+./tests/run-tests.sh
+# Si ArduinoJson n'est pas dans le dossier Arduino habituel :
+ARDUINOJSON_INCLUDE=/chemin/ArduinoJson/src ./tests/run-tests.sh Metrics
 ```
+
+Le broker MQTT, Home Assistant, les sections critiques entre coeurs et
+LittleFS ne sont pas simules integralement. Les schemas et publications
+MQTT sont interceptes, sans connexion a l'installation en service.
 
 Compiler aussi le sketch avec le coeur ESP32 et la table de partitions
 du depot (app0 : 1900 KiB) ; aucune commande d'upload dans cette validation.
@@ -290,7 +304,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 \
   --build-path /chemin/build /chemin/Solar_Router_V17_26
 ```
 
-Validation locale : coeur ESP32 3.3.7, ArduinoJson 7.4.3, tests avec ASan/UBSan,
+Validation historique avant ce rebase : coeur ESP32 3.3.7, ArduinoJson 7.4.3, tests avec ASan/UBSan,
 syntaxe des quatre scripts Actions embarques et `git diff --check` passes.
 Apres extraction du point d'observation commun, les deux branches et leur
 fusion simulee compilent :

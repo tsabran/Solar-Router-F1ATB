@@ -114,8 +114,8 @@ void ActualiserCommandeEnergie() {
     reason = "multiple_groups";
   } else if (selected >= 0) {
     reason = "invalid_group";
-    if (LesActions[selected].Actif == MODE_SEQUENCEUR &&
-        LesActions[selected].IdxSequenceur < 0) {
+    if (selected > 0 && LesActions[selected].Actif == MODE_SEQUENCEUR &&
+        LesActions[selected].IdxSequenceur == -1) {
       bool supported = true;
       int members = 0;
       for (int i = 0; i < NbActions; ++i) {

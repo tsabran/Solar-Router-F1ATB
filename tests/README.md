@@ -48,6 +48,56 @@ tests/
 Prérequis : Bash et un compilateur C++17 (`clang++` ou `g++`). Les tests
 JavaScript du séquenceur utilisent Node.js et ses modules intégrés, sans npm.
 
+## Metriques d'energie : calcul, firmware, MQTT et configuration
+
+La branche `agents/energy-metrics-integration-rms` ajoute `tests/metrics/`.
+Les deux anciens executables `energy_*_test.cpp` sont integres au runner
+commun : chaque cas est enregistre et les assertions restent actives, meme
+avec `NDEBUG`. Aucune installation automatique de dependances n'est faite.
+
+Les tests utilisent la vraie bibliotheque ArduinoJson deja installee pour
+le firmware. Si elle n'est pas dans le dossier Arduino habituel :
+
+```bash
+ARDUINOJSON_INCLUDE=/chemin/ArduinoJson/src ./tests/run-tests.sh
+```
+
+Les scripts de preparation peuvent ecrire des chemins d'inclusion additionnels
+sur leur sortie standard ; les diagnostics doivent aller sur stderr.
+
+Couverture des 34 cas C++ et 4 cas JavaScript propres aux metriques :
+
+- `Metrics` : 15 cas de compteurs, limites de fraicheur, changements de signe,
+  horodatages, parsing mono/triphase et simulation d'une heure confrontee a
+  une integration de reference independante.
+- `MetricsFirmware` : 12 cas incluant directement `EnergiePotentielle.ino` :
+  configuration, forcages, interruptions, invalidation et reprise sans reset.
+- `MetricsIntegration` : 4 cas dans `regulation_cases.h`, inclus par le banc
+  sequenceur pour verifier ensemble le vrai regulateur et le suivi. Une
+  comparaison avec/sans monitoring verifie l'identite des commandes,
+  integrateurs et sorties ISR sur une simulation a mesures toutes les 2 s.
+- `MetricsMQTT` : 3 cas compilant les fonctions de publication/discovery
+  extraites du firmware : schemas JSON, topics, disponibilite, precision de
+  six decimales, dimensions des messages et erreurs de publication explicites.
+- `MetricsUI` : 4 cas executant le JavaScript embarque : opt-in, comportement
+  par defaut, changement de mode et preservation apres reindexation.
+
+```bash
+./tests/run-tests.sh                  # 74 cas, toutes suites combinees
+./tests/run-tests.sh Metrics
+./tests/run-tests.sh MetricsFirmware
+./tests/run-tests.sh MetricsIntegration
+./tests/run-tests.sh MetricsMQTT
+./tests/run-tests.sh MetricsUI
+```
+
+Les tests MQTT interceptent les publications, sans broker ni Home Assistant.
+Les fonctions de suivi sont reelles, mais les sections critiques ESP32 sont
+des stubs : la concurrence entre coeurs n'est pas validee nativement.
+La lecture reseau complete, la persistance LittleFS et le timing electrique
+restent a verifier sur materiel. Voir aussi les
+[limites physiques des indicateurs](../docs/energie_potentielle.md).
+
 ## Séquenceur : tests du firmware réel
 
 La branche `feature/mode-sequenceur` ajoute `tests/sequenceur/` :

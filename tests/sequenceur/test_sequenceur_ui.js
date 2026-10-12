@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-if (process.argv[2] && process.argv[2] !== "SequenceurUI") process.exit(0);
+if (require.main === module && process.argv[2] && process.argv[2] !== "SequenceurUI") process.exit(0);
 
 const header = fs.readFileSync(path.join(__dirname, "../../JS_Actions.h"), "utf8");
 const chunks = [...header.matchAll(/R"====\(([\s\S]*?)\)===="/g)];
@@ -152,15 +152,19 @@ const cases = [
     }]
 ];
 
-let failed = 0;
-for (const [name, run] of cases) {
-    try {
-        run();
-        console.log(`[SequenceurUI] ${name}: PASS`);
-    } catch (error) {
-        failed++;
-        console.error(`[SequenceurUI] ${name}: FAIL\n${error.stack}`);
+module.exports = { setup };
+
+if (require.main === module) {
+    let failed = 0;
+    for (const [name, run] of cases) {
+        try {
+            run();
+            console.log(`[SequenceurUI] ${name}: PASS`);
+        } catch (error) {
+            failed++;
+            console.error(`[SequenceurUI] ${name}: FAIL\n${error.stack}`);
+        }
     }
+    console.log(`SequenceurUI: ${cases.length - failed}/${cases.length} tests passed`);
+    process.exitCode = failed ? 1 : 0;
 }
-console.log(`SequenceurUI: ${cases.length - failed}/${cases.length} tests passed`);
-process.exitCode = failed ? 1 : 0;

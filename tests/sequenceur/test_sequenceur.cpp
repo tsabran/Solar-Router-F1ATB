@@ -1,6 +1,9 @@
 #include "../harness/test_runner.h"
 #include "stubs/Arduino.h"
 #include "stubs/WiFiClient.h"
+#include "../../EnergyMetrics.h"
+#include "../../EnvoyEnergySample.h"
+#include <ctime>
 
 namespace SequencerFirmware {
 
@@ -23,13 +26,32 @@ float RetardF[Capacity], IntegrErrorPw[Capacity], Propor[Capacity];
 float DeriveF[Capacity], LastErrorPw[Capacity];
 int Retard[Capacity], Actif[Capacity], PulseOn[Capacity], PulseTotal[Capacity];
 int PulseComptage[Capacity], OutOn[Capacity], Gpio[Capacity];
+bool EnergieAutonome[Capacity] = {};
+energy_metrics::Counter CompteursPotentiels;
+double PmaxReseau = 36000;
+String Source = "Enphase";
+using portMUX_TYPE = int;
+constexpr int portMUX_INITIALIZER_UNLOCKED = 0;
+void portENTER_CRITICAL(portMUX_TYPE*) {}
+void portEXIT_CRITICAL(portMUX_TYPE*) {}
+time_t simulatedEpoch = 1700000000;
+time_t energyTime(time_t*) { return simulatedEpoch; }
+void ActualiserCommandeEnergie();
 
 #include "sequenceur_firmware.inc"
+#define time energyTime
+#include "../../EnergiePotentielle.ino"
+#undef time
 #undef StockMessage
 #undef TelnetPrintln
 static_assert(Capacity == LES_ACTIONS_LENGTH);
 
 void reset(int count = 5) {
+    InvaliderCommandeEnergie();
+    CompteursPotentiels = {};
+    simulatedEpoch = 1700000000;
+    Source = "Enphase";
+    InitialiserObservationEnergie();
     NbActions = count;
     ReacCACSI = 1;
     HeureCouranteDeci = 1200;
@@ -57,6 +79,7 @@ void reset(int count = 5) {
         Propor[i] = DeriveF[i] = LastErrorPw[i] = 0;
         Actif[i] = PulseOn[i] = PulseTotal[i] = PulseComptage[i] = 0;
         OutOn[i] = 1;
+        EnergieAutonome[i] = false;
     }
     std::fill_n(TemperatureValide, 8, 0);
     std::fill_n(temperature, 8, -120);
@@ -460,3 +483,5 @@ TEST_CASE(Sequenceur, ReconfigurationEtDiagnosticSansFlood) {
     GestionOverproduction();
     ASSERT_EQ(100, Retard[0]);
 }
+
+#include "../metrics/regulation_cases.h"
