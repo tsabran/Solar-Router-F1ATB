@@ -166,6 +166,7 @@ public:
         if (rhs) _data += rhs;
         return *this;
     }
+    char charAt(unsigned int i) const { return i < _data.size() ? _data[i] : 0; }
     String& operator+=(char c) {
         _data += c;
         return *this;

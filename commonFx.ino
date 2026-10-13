@@ -253,3 +253,16 @@ void dumpPartitions() {
   esp_partition_iterator_release(it);
 }
 
+
+// Ajoute une valeur entière + séparateur sans créer de String temporaire
+void AppendInt(String &s, int32_t v, char sep) {
+  char b[14];
+  snprintf(b, sizeof(b), "%ld%c", (long)v, sep);
+  s += b;
+}
+// Même format que String(double) d'Arduino (2 décimales)
+void AppendFloat2(String &s, double v, char sep) {
+  char b[24];
+  snprintf(b, sizeof(b), "%.2f%c", v, sep);
+  s += b;
+}

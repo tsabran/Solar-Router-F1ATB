@@ -368,6 +368,13 @@
 #include <WiFiClientSecure.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
+
+// Logs de diagnostic des handlers web (heap, durée) : activer avec -DHTTP_DEBUG_LOG
+#ifdef HTTP_DEBUG_LOG
+#define HttpLog(msg) TelnetPrintln(msg)
+#else
+#define HttpLog(msg) ((void)0)
+#endif
 #include <ArduinoOTA.h>    //Modification On The Air
 #include <PubSubClient.h>  //Librairie pour la gestion Mqtt
 #include <esp_sntp.h>

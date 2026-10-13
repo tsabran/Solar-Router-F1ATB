@@ -28,10 +28,14 @@ struct Server {
 constexpr size_t CONTENT_LENGTH_UNKNOWN = size_t(-1);
 unsigned long esp_get_free_internal_heap_size() { return 100000; }
 void CacheEtClose(int) {}
+#define HttpLog(msg) ((void)0)
 const char* MainJS1 = "main-js-1", *MainJS2 = "main-js-2", *MainJS3 = "main-js-3";
 const char* PageBrute = "brute-html", *PageBruteJS1 = "brute-js-1", *PageBruteJS2 = "brute-js-2";
 const char* CommunCSS = "css-body{}";
-String Couleurs;
+String Couleurs, ES = "~";
+int IdxStock2s = 299;
+int tabPw_Maison_2s[300], tabPva_Maison_2s[300], tabPw_Triac_2s[300], tabPva_Triac_2s[300];
+int tab_histo_2s_ouverture[3][300];
 String nomSondeFixe, Source_data, EnphaseSerial = "0", GS = "|", RS = ";";
 int PuisMaxS_M = 1, PuisMaxI_M = 2, PuisMaxS_T = 3, PuisMaxI_T = 4;
 int IdxStockPW = 599, NbActions = 3, ITmode = 0;
@@ -40,6 +44,7 @@ int tabTemperature_5mn[4][600], tab_histo_ouverture[3][600];
 float temperature[4] = {1, 2, 3, 4};
 struct Action { int Actif; String Titre; };
 Action LesActions[3] = {{1, "Triac"}, {1, "Relais"}, {0, "Disabled"}};
+#include "envoy_append.inc"
 #include "envoy_web.inc"
 
 TEST_CASE(EnvoyWeb, StaticStreamingMatchesBodyAndContentLength) {
@@ -113,6 +118,33 @@ TEST_CASE(EnvoyWeb, ChunkedHistoryOrderAllChannelsAndActionEligibility) {
         ASSERT_TRUE(server.chunks > 8);
         ASSERT_TRUE(server.body.find("Disabled") == std::string::npos);
     }
+}
+
+TEST_CASE(EnvoyWeb, Data10mnOrderAndActionEligibility) {
+    for (int i = 0; i < 300; i++) {
+        tabPw_Maison_2s[i] = i; tabPva_Maison_2s[i] = 2 * i;
+        tabPw_Triac_2s[i] = -i; tabPva_Triac_2s[i] = -2 * i;
+        for (int a = 0; a < 3; a++) tab_histo_2s_ouverture[a][i] = a * 100 - i;
+    }
+    Source_data = "Enphase";
+    server = {};
+    handleAjaxData10mn();
+    String expected = Source_data + GS;
+    for (int i = 0; i < 300; i++) {
+        const int k = (i + 299) % 300;
+        expected += String(k) + "," + String(2 * k) + ",";
+    }
+    expected += GS;
+    for (int i = 0; i < 300; i++) {
+        const int k = (i + 299) % 300;
+        expected += String(-k) + "," + String(-2 * k) + ",";
+    }
+    for (int a = 0; a < 2; a++) {
+        expected += GS + String(a) + ES;
+        for (int i = 0; i < 300; i++) expected += String(a * 100 - (i + 299) % 300) + RS;
+    }
+    ASSERT_EQ(std::string(expected.c_str()), server.body);
+    ASSERT_TRUE(server.terminated);
 }
 
 } // namespace EnvoyWeb

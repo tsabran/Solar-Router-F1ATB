@@ -193,8 +193,8 @@ void handleBruteJS2() {  // Code Javascript
   server.send_P(200, "text/javascript", PageBruteJS2);  // Javascript code
 }
 void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
-  unsigned long _t0 = millis();
-  TelnetPrintln("ajaxRMS debut heap=" + String(esp_get_free_internal_heap_size()));
+  [[maybe_unused]] unsigned long _t0 = millis();
+  HttpLog("ajaxRMS debut heap=" + String(esp_get_free_internal_heap_size()));
   String S = "";
   String RMSExtDataB = "";
   int LastIdx = server.arg(0).toInt();
@@ -331,12 +331,12 @@ void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
     }
   }
 
-  TelnetPrintln("ajaxRMS fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("ajaxRMS fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "text/html", S);
 }
 void handleAjaxHisto48h() {  // Envoi Historique de 50h (600points) toutes les 5mn
-  unsigned long _t0 = millis();
-  TelnetPrintln("histo48h debut heap=" + String(esp_get_free_internal_heap_size()));
+  [[maybe_unused]] unsigned long _t0 = millis();
+  HttpLog("histo48h debut heap=" + String(esp_get_free_internal_heap_size()));
 
   String Pmaxi = String(PuisMaxS_M) + RS + String(PuisMaxI_M) + RS + String(PuisMaxS_T) + RS + String(PuisMaxI_T);
 
@@ -349,10 +349,10 @@ void handleAjaxHisto48h() {  // Envoi Historique de 50h (600points) toutes les 5
     S.reserve(3600);
     int iS = IdxStockPW;
     for (int i = 0; i < 600; i++) {
-      S += String(tabPw_Maison_5mn[iS]) + ",";
+      AppendInt(S, tabPw_Maison_5mn[iS], ',');
       iS = (1 + iS) % 600;
     }
-    TelnetPrintln("histo48h S=" + String(S.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+    HttpLog("histo48h S=" + String(S.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
     server.sendContent(Pmaxi);
     server.sendContent(GS);
     server.sendContent(S);
@@ -364,10 +364,10 @@ void handleAjaxHisto48h() {  // Envoi Historique de 50h (600points) toutes les 5
     T.reserve(3600);
     int iS = IdxStockPW;
     for (int i = 0; i < 600; i++) {
-      T += String(tabPw_Triac_5mn[iS]) + ",";
+      AppendInt(T, tabPw_Triac_5mn[iS], ',');
       iS = (1 + iS) % 600;
     }
-    TelnetPrintln("histo48h T=" + String(T.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+    HttpLog("histo48h T=" + String(T.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
     server.sendContent(GS);
     server.sendContent(T);
   }  // T libérée ici
@@ -381,13 +381,13 @@ void handleAjaxHisto48h() {  // Envoi Historique de 50h (600points) toutes les 5
       U = "";
       int iS = IdxStockPW;
       for (int i = 0; i < 600; i++) {
-        U += String(float(tabTemperature_5mn[canal][iS]) * 0.1) + ",";
+        AppendFloat2(U, float(tabTemperature_5mn[canal][iS]) * 0.1, ',');
         iS = (1 + iS) % 600;
       }
       U += String(temperature[canal]) + "|";
       server.sendContent(U);
     }
-    TelnetPrintln("histo48h U termine heap=" + String(esp_get_free_internal_heap_size()));
+    HttpLog("histo48h U termine heap=" + String(esp_get_free_internal_heap_size()));
   }  // U libérée ici
 
   // --- Ouverture : action par action (~2.5Ko par action active) ---
@@ -398,20 +398,20 @@ void handleAjaxHisto48h() {  // Envoi Historique de 50h (600points) toutes les 5
       int iS = IdxStockPW;
       bloc += GS;
       for (int j = 0; j < 600; j++) {
-        bloc += String(tab_histo_ouverture[i][iS]) + RS;
+        AppendInt(bloc, tab_histo_ouverture[i][iS], RS.charAt(0));
         iS = (1 + iS) % 600;
       }
       bloc += LesActions[i].Titre;
-      TelnetPrintln("histo48h action" + String(i) + "=" + String(bloc.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+      HttpLog("histo48h action" + String(i) + "=" + String(bloc.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
       server.sendContent(bloc);
     }  // bloc libéré ici
   }
 
-  TelnetPrintln("histo48h fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("histo48h fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.sendContent("");  // terminateur chunked 0\r\n\r\n
 }
 void handleAjaxESP32() {  // Envoi des dernières infos sur l'ESP32
-  unsigned long _t0 = millis();
+  [[maybe_unused]] unsigned long _t0 = millis();
   IT10ms = 0;
   IT10ms_in = 0;
   String S = "";
@@ -460,17 +460,17 @@ void handleAjaxESP32() {  // Envoi des dernières infos sur l'ESP32
     }
   }
 
-  TelnetPrintln("ajaxESP32 fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("ajaxESP32 fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "text/html", S);
 }
 void handleAjaxHisto1an() {  
-  unsigned long _t0 = millis();
-  TelnetPrintln("histo1an debut heap=" + String(esp_get_free_internal_heap_size()));
+  [[maybe_unused]] unsigned long _t0 = millis();
+  HttpLog("histo1an debut heap=" + String(esp_get_free_internal_heap_size()));
   envoyerHistoriqueEnergie(server);  // envoi direct depuis la fonction qui produit les données
-  TelnetPrintln("histo1an fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("histo1an fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
 }
 void handleAjaxData() {  // Données page d'accueil
-  unsigned long _t0 = millis();
+  [[maybe_unused]] unsigned long _t0 = millis();
   String DateLast = "Attente d'une mise à l'heure par internet";
   if (Horloge == 1)
     DateLast = "Attente d'une mise à l'heure par le Linky";
@@ -505,7 +505,7 @@ void handleAjaxData() {  // Données page d'accueil
 // --- FIN ---
   S += FS + "Fin\r";
 
-  TelnetPrintln("ajaxData fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("ajaxData fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "text/html", S);
 }
 void handleAjax_etatActions() {
@@ -604,8 +604,8 @@ void handleRestart() {  // Eventuellement Reseter l'ESP32 à distance
 }
 
 void handleAjaxData10mn() {  // Envoi Historique de 10mn (300points)Energie Active Soutiré - Injecté
-  unsigned long _t0 = millis();
-  TelnetPrintln("data10mn debut heap=" + String(esp_get_free_internal_heap_size()));
+  [[maybe_unused]] unsigned long _t0 = millis();
+  HttpLog("data10mn debut heap=" + String(esp_get_free_internal_heap_size()));
 
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "text/html", "");
@@ -616,11 +616,11 @@ void handleAjaxData10mn() {  // Envoi Historique de 10mn (300points)Energie Acti
     S.reserve(3600);
     int iS = IdxStock2s;
     for (int i = 0; i < 300; i++) {
-      S += String(tabPw_Maison_2s[iS]) + ",";
-      S += String(tabPva_Maison_2s[iS]) + ",";
+      AppendInt(S, tabPw_Maison_2s[iS], ',');
+      AppendInt(S, tabPva_Maison_2s[iS], ',');
       iS = (1 + iS) % 300;
     }
-    TelnetPrintln("data10mn S=" + String(S.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+    HttpLog("data10mn S=" + String(S.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
     server.sendContent(Source_data);
     server.sendContent(GS);
     server.sendContent(S);
@@ -632,11 +632,11 @@ void handleAjaxData10mn() {  // Envoi Historique de 10mn (300points)Energie Acti
     T.reserve(3600);
     int iS = IdxStock2s;
     for (int i = 0; i < 300; i++) {
-      T += String(tabPw_Triac_2s[iS]) + ",";
-      T += String(tabPva_Triac_2s[iS]) + ",";
+      AppendInt(T, tabPw_Triac_2s[iS], ',');
+      AppendInt(T, tabPva_Triac_2s[iS], ',');
       iS = (1 + iS) % 300;
     }
-    TelnetPrintln("data10mn T=" + String(T.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+    HttpLog("data10mn T=" + String(T.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
     server.sendContent(GS);
     server.sendContent(T);
   }  // T libérée ici
@@ -651,15 +651,15 @@ void handleAjaxData10mn() {  // Envoi Historique de 10mn (300points)Energie Acti
       bloc += String(i);
       bloc += ES;
       for (int j = 0; j < 300; j++) {
-        bloc += String(tab_histo_2s_ouverture[i][iS]) + RS;
+        AppendInt(bloc, tab_histo_2s_ouverture[i][iS], RS.charAt(0));
         iS = (1 + iS) % 300;
       }
-      TelnetPrintln("data10mn action" + String(i) + "=" + String(bloc.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
+      HttpLog("data10mn action" + String(i) + "=" + String(bloc.length()) + "o heap=" + String(esp_get_free_internal_heap_size()));
       server.sendContent(bloc);
     }  // bloc libéré ici
   }
 
-  TelnetPrintln("data10mn fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("data10mn fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.sendContent("");  // terminateur chunked 0\r\n\r\n
 }
 void handleAjaxNoms() {
@@ -722,8 +722,8 @@ static const char SECRET_MASK[] = "********";
 static const char *const SECRET_KEYS[] = { "password", "EnphasePwd", "MQTTPwd" };
 
 void handleParaNew() {
-  unsigned long _t0 = millis();
-  TelnetPrintln("paraNew debut heap=" + String(esp_get_free_internal_heap_size()));
+  [[maybe_unused]] unsigned long _t0 = millis();
+  HttpLog("paraNew debut heap=" + String(esp_get_free_internal_heap_size()));
   String EtatGpioInitial = String(Fpwm);
   for (int i = 1; i < NbActions; i++) {
     EtatGpioInitial += String(LesActions[i].Gpio) + String(LesActions[i].OutOn) + String(LesActions[i].OutOff);
@@ -765,7 +765,7 @@ void handleParaNew() {
   // Recherche des Noms (routeurs, températures,actions) des RMS partenaires
   IndexSource();
   Liste_des_Noms();
-  TelnetPrintln("paraNew fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("paraNew fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
 }
 
 void handleCleUpdate() {
@@ -871,8 +871,8 @@ void handleExport() {
   lectureCookie(ExportHtml);
 }
 void handleExport_file() {
-  unsigned long _t0 = millis();
-  TelnetPrintln("exportFile debut heap=" + String(esp_get_free_internal_heap_size()));
+  [[maybe_unused]] unsigned long _t0 = millis();
+  HttpLog("exportFile debut heap=" + String(esp_get_free_internal_heap_size()));
   String S = "";
   String Fichier = server.arg("Fichier");
   if (server.arg("Delete") == "OK") {
@@ -889,11 +889,11 @@ void handleExport_file() {
     server.sendHeader("Content-Disposition", "attachment; filename=\"" + server.arg("download") + "\"");
   }
 
-  TelnetPrintln("exportFile fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("exportFile fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "application/json", S);
 }
 void handleListeFile() {
-  unsigned long _t0 = millis();
+  [[maybe_unused]] unsigned long _t0 = millis();
   String S = "";
   File root = LittleFS.open("/");
   File file = root.openNextFile();
@@ -905,7 +905,7 @@ void handleListeFile() {
   S += FS + String(LittleFS.totalBytes());  // Espace total
   S += FS + String(LittleFS.usedBytes());   // Espace utilisé
 
-  TelnetPrintln("listeFile fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
+  HttpLog("listeFile fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.send(200, "text/javascript", S);
 }
 void handleAP_ScanWifi() {
