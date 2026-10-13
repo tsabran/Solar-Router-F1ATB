@@ -139,6 +139,19 @@ TEST_CASE(EnvoyCompatibility, RealEightMeterResponseIsAccepted) {
     ASSERT_EQ(4022, (int)PactProd);
 }
 
+TEST_CASE(EnvoyCompatibility, ConsecutiveRealResponsesOnKeepAliveSocket) {
+    reset();
+    const auto body = fixture("envoy_readings_real_8meters.json");
+    const auto reply = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: " +
+                       std::to_string(body.size()) + "\r\n\r\n" + body;
+    for (int i = 0; i < 3; ++i) {
+        envoyReplies.push_back({reply, true, 5, 1460});
+        LectureEnphase();
+        ASSERT_EQ(unsigned(i + 1), EnvoyCompteSuccesLectureComplete);
+        ASSERT_EQ(4022, (int)PactProd);
+    }
+}
+
 #ifndef ENVOY_COMPATIBILITY_ONLY
 TEST_CASE(EnvoyFirmware, RealMonophaseParsingAndObserver) {
     reset();

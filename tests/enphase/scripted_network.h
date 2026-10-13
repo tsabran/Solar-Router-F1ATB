@@ -68,7 +68,11 @@ public:
         requests.push_back(request);
         if (request.rfind("GET ", 0) == 0) {
             if (envoyReplies.empty()) throw std::logic_error("Unexpected Envoy request");
-            load(envoyReplies.front());
+            Reply next = envoyReplies.front();
+            // A keep-alive socket still holds the unread tail of the previous response.
+            if (connected_ && reply_.keepAlive && offset_ < reply_.data.size())
+                next.data = reply_.data.substr(offset_) + next.data;
+            load(next);
             envoyReplies.pop_front();
         }
     }
