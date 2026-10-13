@@ -27,7 +27,11 @@ String urlEncode(String value) { return value; }
 void networkYield() { advance_simulated_millis(1); }
 #define yield networkYield
 float ValJson(String, String);
+#ifdef ENVOY_LEGACY_READER
+float ValJson(const char*, const char*);
+#else
 double ValJson(const char*, const char*);
+#endif
 String StringJson(String, String);
 #include "envoy_stats.inc"
 float PactProd, PactConso_M, Tension_M, Intensite_M, Frequence, PowerFactor_M;
@@ -43,7 +47,10 @@ long LastwhDlvdCum = 0, LastwhRcvdCum = 0;
 double Energie_M_Soutiree = 0, Energie_M_Injectee = 0;
 float PfloatMax(float watts) { return std::clamp(watts, -36000.0f, 36000.0f); }
 #include "envoy_filter.inc"
-#include "../../Source_EnphaseEnvoy.ino"
+#ifndef ENVOY_READER_SOURCE
+#define ENVOY_READER_SOURCE "../../Source_EnphaseEnvoy.ino"
+#endif
+#include ENVOY_READER_SOURCE
 #undef yield
 
 EnvoyEnergySample observed;
@@ -109,6 +116,30 @@ void queueRenewal(bool success = true) {
         (success ? std::string(90, 'N') : "{}") + "\n", false});
 }
 
+TEST_CASE(EnvoyCompatibility, AdditionalMeterDoesNotRejectGridReading) {
+    reset();
+    auto body = fixture("envoy_readings_monophase_surplus.json");
+    body.insert(body.find_last_of(']'),
+                ",{\"eid\":704643584,\"timestamp\":1718000000,\"voltage\":232.5,"
+                "\"activePower\":700,\"channels\":[{\"activePower\":700},{},{}]}");
+    envoyReplies.push_back({"HTTP/1.1 200 OK\r\n\r\n" + body});
+    LectureEnphase();
+    ASSERT_EQ(1u, EnvoyCompteSuccesLectureComplete);
+    ASSERT_EQ(700, PactConso_M);
+    ASSERT_EQ(1800, PuissanceI_M);
+}
+
+TEST_CASE(EnvoyCompatibility, RealEightMeterResponseIsAccepted) {
+    reset();
+    const auto body = fixture("envoy_readings_real_8meters.json");
+    envoyReplies.push_back({"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: " +
+                            std::to_string(body.size()) + "\r\n\r\n" + body});
+    LectureEnphase();
+    ASSERT_EQ(1u, EnvoyCompteSuccesLectureComplete);
+    ASSERT_EQ(4022, (int)PactProd);
+}
+
+#ifndef ENVOY_COMPATIBILITY_ONLY
 TEST_CASE(EnvoyFirmware, RealMonophaseParsingAndObserver) {
     reset();
     envoyReplies.push_back({ok()});
@@ -624,5 +655,6 @@ TEST_CASE(EnvoyWeb, IPAndCSSConversionsPreserveProtocol) {
     ASSERT_EQ("#000001", std::string(ULtoHex(1).c_str()));
     ASSERT_EQ("#abcdef", std::string(ULtoHex(0xffabcdef).c_str()));
 }
+#endif
 
 } // namespace EnvoyFirmware

@@ -317,6 +317,22 @@ bool CaptureEnvoySessionIdFromHeaders(NetworkClientSecure& pClient, unsigned lon
   }
 }
 
+// Premier caractère non blanc du flux, ou -1 si le flux se termine / expire.
+int ReadNextNonSpaceChar(NetworkClient& stream, unsigned long timeoutMs) {
+  uint32_t lastActivity = millis();
+  while (true) {
+    while (stream.available() > 0) {
+      int c = stream.read();
+      if (c < 0) break;
+      lastActivity = millis();
+      if (!isspace((unsigned char)c)) return c;
+    }
+    if (!stream.connected() && stream.available() == 0) return -1;
+    if (uint32_t(millis() - lastActivity) >= timeoutMs) return -1;
+    yield();
+  }
+}
+
 bool EnvoyPayloadPrefixValide(const char* payload, const char* prefix) {
   while (*payload && *payload != '{') {
     if (!isspace((unsigned char)*payload)) {
@@ -682,16 +698,16 @@ void LectureEnphase()
           for (size_t i = 0; i < jsonPayloadLength; ++i)
             tailValid = tailValid && isspace((unsigned char)jsonPayload[i]);
           if (tailValid) {
+            // L'Envoy réel renvoie jusqu'à 8 compteurs : seule la fermeture du compteur 2 est validée.
             tailStatus = ReadBufferUntilChar(client, jsonPayload, sizeof(jsonPayload),
-                                             jsonPayloadLength, ']', TIMEOUT_READ_PAYLOAD);
-            bool meterClosed = false;
+                                             jsonPayloadLength, '}', TIMEOUT_READ_PAYLOAD);
             tailValid = tailStatus == READ_OK;
-            for (size_t i = 0; i < jsonPayloadLength; ++i) {
-              if (isspace((unsigned char)jsonPayload[i])) continue;
-              if (jsonPayload[i] != '}' || meterClosed) tailValid = false;
-              meterClosed = true;
+            for (size_t i = 0; i < jsonPayloadLength; ++i)
+              tailValid = tailValid && isspace((unsigned char)jsonPayload[i]);
+            if (tailValid) {
+              const int next = ReadNextNonSpaceChar(client, TIMEOUT_READ_PAYLOAD);
+              tailValid = next == ']' || next == ',';
             }
-            tailValid = tailValid && meterClosed;
           }
           if (!tailValid) {
             StockMessage("Envoy invalid or truncated JSON ending");
