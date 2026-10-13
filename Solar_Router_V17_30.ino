@@ -725,6 +725,7 @@ long LastwhRcvdCum = 0;             //Dernière valeur cumul Wh injecté
 float EMI_Wh = 0;                   //Energie entrée Maison Injecté Wh
 float EMS_Wh = 0;                   //Energie entrée Maison Soutirée Wh
 #define ENPHASE_READING_PERIOD 2000
+void Setup_Enphase(bool NewToken = false);  // MC001 pour gérer Load/Save token Source_Enphase pb déclaration avec paramètre optionnel
 
 //Paramètres for SmartGateways
 String SG_dataBrute = "";

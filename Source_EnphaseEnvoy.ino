@@ -10,6 +10,36 @@ uint32_t ipToInt(IPAddress ip) {                                                
 
 int HttpStatusCode(const char* statusLine);
 
+// Même fichier et même format que la V17.30 upstream (MC001) : le token survit aux redémarrages,
+// ce qui évite deux connexions TLS vers Enlighten à chaque boot et permet de démarrer sans cloud.
+#define ENPHASE_TOKEN_FILE "/tokenenphase.json"
+#define TOKEN_MIN_LENGTH 200
+#define ENPHASE_CLOUD_TIMEOUT_CONNECT 4000
+
+void SaveTokenEnphase() {
+  File f = LittleFS.open(ENPHASE_TOKEN_FILE, FILE_WRITE);
+  if (!f) {
+    StockMessage("Enphase token save failed");
+    return;
+  }
+  f.print(String("{\"token\":\"") + TokenEnphase + "\"}");
+  f.close();
+}
+
+bool LoadTokenEnphase() {
+  if (!LittleFS.exists(ENPHASE_TOKEN_FILE)) return false;
+  File f = LittleFS.open(ENPHASE_TOKEN_FILE, FILE_READ);
+  if (!f) return false;
+  String json = f.readString();
+  f.close();
+  JsonDocument document;
+  if (deserializeJson(document, json.c_str()) || !document["token"].is<const char*>()) return false;
+  String token = document["token"].as<const char*>();
+  if (token.length() <= TOKEN_MIN_LENGTH) return false;
+  TokenEnphase = token;
+  return true;
+}
+
 bool ReadEnphaseCloudResponse(NetworkClientSecure& client, String& body) {
   String response;
   const unsigned long started = millis();
@@ -43,7 +73,10 @@ bool ReadEnphaseCloudResponse(NetworkClientSecure& client, String& body) {
   return true;
 }
 
-void Setup_Enphase() {
+void Setup_Enphase(bool NewToken) {
+  // Un token expiré sera refusé (401/403) par l'Envoy puis renouvelé par LectureEnphase().
+  const bool tokenLoaded = !NewToken && LoadTokenEnphase();
+  if (tokenLoaded) StockMessage("Enphase token loaded from flash (" + String(TokenEnphase.length()) + ")");
 
   //Résolution mDNS de http://envoy.local en adresse IP                                                                  //SR19
   //***************************************************                                                                  //SR19
@@ -52,7 +85,7 @@ void Setup_Enphase() {
   IPAddress envoyIP;
   if (RMSextIPauto) {                                                                                //SR19
     if (!MDNS.begin(hostname)) {                                                                     //Init mDNS                                                                              //SR19
-      TelnetPrintln("Erreur : impossible d'initialiser mDNS");                                       //SR19
+      StockMessage("Erreur : impossible d'initialiser mDNS");                                       //SR19
       return;                                                                                        //SR19
     } else {                                                                                         //SR19
       envoyIP = MDNS.queryHost(host, 2000);                                                          //avec timeout 2s                                                             //SR19
@@ -66,6 +99,7 @@ void Setup_Enphase() {
       return;                                                       //SR19
     }
   }
+  if (tokenLoaded) return;
   //Obtention Session ID
   //********************
   const char* server1Enphase = "enlighten.enphaseenergy.com";
@@ -78,9 +112,11 @@ void Setup_Enphase() {
   if (EnphaseUser != "" && EnphasePwd != "" && RMSextIP > 0) {  // test envoyIP si perte de connexion //SR19
     TelnetPrintln("Essai connexion  Enlighten server 1 pour obtention session_id!");
     clientSecu.setInsecure();  //skip verification
-    if (!clientSecu.connect(server1Enphase, 443, 3000))
+    if (!clientSecu.connect(server1Enphase, 443, ENPHASE_CLOUD_TIMEOUT_CONNECT)) {
       StockMessage("Connection failed to Enlighten server :" + Host);
-    else {
+      clientSecu.stop();
+      return;
+    } else {
       TelnetPrintln("Connected to Enlighten server:" + Host);
 	    StockMessage("Connected to Enlighten server :" + Host);
       clientSecu.println("POST " + adrEnphase + "?" + requestBody + " HTTP/1.0");
@@ -108,9 +144,11 @@ void Setup_Enphase() {
     requestBody = "{\"session_id\":\"" + Session_id + "\", \"serial_num\":" + EnphaseSerial + ", \"username\":\"" + EnphaseUser + "\"}";
     TelnetPrintln("Essai connexion  Enlighten server 2 pour obtention token!");
     clientSecu.setInsecure();  //skip verification
-    if (!clientSecu.connect(server2Enphase, 443, 3000))
+    if (!clientSecu.connect(server2Enphase, 443, ENPHASE_CLOUD_TIMEOUT_CONNECT)) {
       StockMessage("Connection failed to :" + Host);
-    else {
+      clientSecu.stop();
+      return;
+    } else {
       TelnetPrintln("Connected to :" + Host);
 	    StockMessage("Connected to :" + Host);
       clientSecu.println("POST " + adrEnphase + " HTTP/1.0");
@@ -128,6 +166,7 @@ void Setup_Enphase() {
       //StockMessage("Token :" + JsonToken);
       if (JsonToken.length() > 50) {
         TokenEnphase = JsonToken;
+        SaveTokenEnphase();
         previousTimeRMSMin = 1000;
         previousTimeRMSMax = 1;
         previousTimeRMSMoy = 1;
@@ -155,7 +194,7 @@ bool EnphaseTokenRetryAllowed() {
 void RenouvelleTokenEnphase() {
   String previousToken = TokenEnphase;
   TokenEnphase = "";
-  Setup_Enphase();
+  Setup_Enphase(true);
   if (TokenEnphase.length() > 50) {
     lastTokenUpdate = millis();  // repart pour 30 jours
     EnvoySessionIdCookie = "";

@@ -3,6 +3,7 @@
 #include "../../EnvoyEnergySample.h"
 #include <fstream>
 #include <cctype>
+#include <map>
 #include "scripted_network.h"
 
 namespace EnvoyFirmware {
@@ -22,6 +23,32 @@ String EnphaseSerial = "12345", TokenEnphase, EnvoySessionIdCookie;
 uint32_t previousTimeRMSMin, previousTimeRMSMax, previousTimeRMSMoy, previousTimeRMS;
 uint32_t LastRMS_Millis, PeriodeProgMillis, lastTokenUpdate;
 NetworkClientSecure clientSecu;
+#define FILE_READ "r"
+#define FILE_WRITE "w"
+std::map<std::string, std::string> flashFiles;
+bool flashWriteFails = false;
+struct File {
+    std::string* data = nullptr;
+    explicit operator bool() const { return data != nullptr; }
+    void print(const String& text) { *data += text.c_str(); }
+    String readString() { return String(data->c_str()); }
+    void close() { data = nullptr; }
+};
+struct LittleFSStub {
+    bool exists(const char* path) { return flashFiles.count(path) != 0; }
+    File open(const char* path, const char* mode) {
+        if (std::string(mode) == FILE_WRITE) {
+            if (flashWriteFails) return {};
+            flashFiles[path].clear();
+        } else if (!exists(path)) {
+            return {};
+        }
+        return {&flashFiles[path]};
+    }
+} LittleFS;
+#ifndef ENVOY_LEGACY_READER
+void Setup_Enphase(bool NewToken = false);
+#endif
 void EcritureEnROM() {}
 String urlEncode(String value) { return value; }
 void networkYield() { advance_simulated_millis(1); }
@@ -70,6 +97,8 @@ void reset() {
     connectionResults.clear();
     connections.clear();
     requests.clear();
+    flashFiles.clear();
+    flashWriteFails = false;
     g_stockMessages.clear();
     TokenEnphase = std::string(80, 'T');
     EnvoySessionIdCookie = "";
@@ -503,6 +532,85 @@ TEST_CASE(EnvoyFirmware, RealisticCloudResponsesProvideToken) {
         sessionForwarded |= line.find("\"session_id\":\"00000000000000000000000000000000\"") != std::string::npos;
     ASSERT_TRUE(sessionForwarded);
 }
+
+#ifndef ENVOY_LEGACY_READER
+TEST_CASE(EnvoyFirmware, StoredTokenSkipsCloudAtBoot) {
+    reset();
+    TokenEnphase = "";
+    const std::string stored(410, 'S');
+    flashFiles[ENPHASE_TOKEN_FILE] = "{\"token\":\"" + stored + "\"}";
+    Setup_Enphase();
+    ASSERT_TRUE(connections.empty());
+    ASSERT_EQ(stored, std::string(TokenEnphase.c_str()));
+}
+
+TEST_CASE(EnvoyFirmware, InvalidStoredTokenFallsBackToCloudAndIsReplaced) {
+    for (const std::string& content : {std::string("{\"token\":\"") + std::string(TOKEN_MIN_LENGTH, 'S') + "\"}",
+                                       std::string("{\"token\":"), std::string("{}")}) {
+        reset();
+        TokenEnphase = "";
+        flashFiles[ENPHASE_TOKEN_FILE] = content;
+        cloudReplies.push_back({fixture("cloud_login_success.http"), false, 2, 536});
+        cloudReplies.push_back({fixture("cloud_token_success.http"), false, 2, 536});
+        Setup_Enphase();
+        ASSERT_EQ(size_t(2), connections.size());
+        ASSERT_EQ(size_t(410), size_t(TokenEnphase.length()));
+        ASSERT_EQ("{\"token\":\"" + std::string(TokenEnphase.c_str()) + "\"}", flashFiles[ENPHASE_TOKEN_FILE]);
+        TokenEnphase = "";
+        Setup_Enphase();
+        ASSERT_EQ(size_t(2), connections.size());
+        ASSERT_EQ(size_t(410), size_t(TokenEnphase.length()));
+    }
+}
+
+TEST_CASE(EnvoyFirmware, RejectedStoredTokenIsRenewedAndOverwritten) {
+    reset();
+    const std::string stored(410, 'S');
+    flashFiles[ENPHASE_TOKEN_FILE] = "{\"token\":\"" + stored + "\"}";
+    TokenEnphase = stored;
+    advance_simulated_millis(TOKEN_RETRY_MS);
+    envoyReplies.push_back({"HTTP/1.1 401 Unauthorized\r\n\r\n"});
+    queueRenewal();
+    LectureEnphase();
+    ASSERT_EQ(std::string(90, 'N'), std::string(TokenEnphase.c_str()));
+    ASSERT_EQ("{\"token\":\"" + std::string(90, 'N') + "\"}", flashFiles[ENPHASE_TOKEN_FILE]);
+}
+
+TEST_CASE(EnvoyFirmware, FailedRenewalKeepsStoredTokenAndSaveFailureIsReported) {
+    reset();
+    const std::string stored(410, 'S');
+    flashFiles[ENPHASE_TOKEN_FILE] = "{\"token\":\"" + stored + "\"}";
+    TokenEnphase = stored;
+    advance_simulated_millis(TOKEN_RETRY_MS);
+    envoyReplies.push_back({"HTTP/1.1 401 Unauthorized\r\n\r\n"});
+    queueRenewal(false);
+    LectureEnphase();
+    ASSERT_EQ(stored, std::string(TokenEnphase.c_str()));
+    ASSERT_EQ("{\"token\":\"" + stored + "\"}", flashFiles[ENPHASE_TOKEN_FILE]);
+
+    reset();
+    TokenEnphase = "";
+    flashWriteFails = true;
+    queueRenewal();
+    Setup_Enphase(true);
+    ASSERT_EQ(std::string(90, 'N'), std::string(TokenEnphase.c_str()));
+    ASSERT_TRUE(flashFiles.empty());
+    bool reported = false;
+    for (const auto& message : g_stockMessages)
+        reported |= std::string(message.c_str()) == "Enphase token save failed";
+    ASSERT_TRUE(reported);
+}
+
+TEST_CASE(EnvoyFirmware, CloudConnectFailureStopsBeforeTokenRequest) {
+    reset();
+    TokenEnphase = "";
+    connectionResults.push_back(false);
+    Setup_Enphase(true);
+    ASSERT_EQ(size_t(1), connections.size());
+    ASSERT_TRUE(TokenEnphase.length() == 0);
+    ASSERT_TRUE(flashFiles.empty());
+}
+#endif
 
 TEST_CASE(EnvoyFirmware, CaseInsensitiveHeaderNullBufferAndLongRequestFallback) {
     reset();
