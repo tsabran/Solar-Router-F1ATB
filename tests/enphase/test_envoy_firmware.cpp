@@ -489,6 +489,21 @@ TEST_CASE(EnvoyFirmware, LongHeaderLinesAreSkippedAndCookieStillCaptured) {
     ASSERT_EQ(0u, EnvoyCompteSuccesLectureComplete);
 }
 
+// En-têtes réels d'enlighten/entrez (anonymisés), corps et jetons factices de taille réelle.
+TEST_CASE(EnvoyFirmware, RealisticCloudResponsesProvideToken) {
+    reset();
+    TokenEnphase = "";
+    cloudReplies.push_back({fixture("cloud_login_success.http"), false, 2, 536});
+    cloudReplies.push_back({fixture("cloud_token_success.http"), false, 2, 536});
+    Setup_Enphase();
+    ASSERT_EQ(size_t(2), connections.size());
+    ASSERT_EQ(size_t(410), size_t(TokenEnphase.length()));
+    bool sessionForwarded = false;
+    for (const auto& line : requests)
+        sessionForwarded |= line.find("\"session_id\":\"00000000000000000000000000000000\"") != std::string::npos;
+    ASSERT_TRUE(sessionForwarded);
+}
+
 TEST_CASE(EnvoyFirmware, CaseInsensitiveHeaderNullBufferAndLongRequestFallback) {
     reset();
     auto response = ok();
