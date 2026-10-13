@@ -283,11 +283,15 @@ bool CaptureEnvoySessionIdFromHeaders(NetworkClientSecure& pClient, unsigned lon
 
   // Seuls les appels locaux Envoy authentifiés par bearer nécessitent la lecture des headers,
   // car ils renvoient le cookie local `sessionId` à réutiliser sur les appels suivants.
+  // Une ligne d'en-tête plus longue que le tampon est ignorée (comme avant le durcissement),
+  // dans la limite de 8 Ko d'en-têtes trop longs pour ne pas boucler indéfiniment.
+  int longHeaderChunks = 0;
   while(true)
   {
     int status = ReadBufferUntilChar(pClient, httpHeaderBuf, sizeof(httpHeaderBuf), httpHeaderLength, '\n', nTimeout);
+    const bool lineTooLong = status == READ_TOO_LONG;
 
-    if (status != READ_OK) {
+    if (status != READ_OK && !lineTooLong) {
       StockMessage(String("Envoy Headers reading failed, status= ") + ReadStatusToString(status) + ", partialLen=" + httpHeaderLength);
       return true;
     }
@@ -308,11 +312,24 @@ bool CaptureEnvoySessionIdFromHeaders(NetworkClientSecure& pClient, unsigned lon
         p += 10; // strlen("sessionId=")
         const char* q = strchr(p, ';');
         size_t len = q ? (size_t)(q - p) : strlen(p);
-        if (len > 0) {
+        // Sur une ligne tronquée, la valeur n'est fiable que si son ';' final a été lu.
+        if (len > 0 && (q || !lineTooLong)) {
           EnvoySessionIdCookie = String(p, (unsigned int)len);
           StockMessage("Envoy local sessionId successfully cached");
         }
       }
+    }
+
+    while (status == READ_TOO_LONG) {
+      if (++longHeaderChunks > 32) {
+        StockMessage("Envoy headers too long");
+        return true;
+      }
+      status = ReadBufferUntilChar(pClient, httpHeaderBuf, sizeof(httpHeaderBuf), httpHeaderLength, '\n', nTimeout);
+    }
+    if (status != READ_OK) {
+      StockMessage(String("Envoy Headers reading failed, status= ") + ReadStatusToString(status) + ", partialLen=" + httpHeaderLength);
+      return true;
     }
   }
 }

@@ -337,8 +337,7 @@ TEST_CASE(EnvoyFirmware, Cookie403FallsBackToBearer) {
 TEST_CASE(EnvoyFirmware, ExactStatusAndCompleteHeadersRequired) {
     for (const auto& response : {
         "HTTP/1.1 500 Error 200\r\n\r\n" + fixture("envoy_readings_monophase_surplus.json"),
-        "HTTP/1.1 200 OK" + std::string(260, 'X') + "\r\n\r\n" + fixture("envoy_readings_monophase_surplus.json"),
-        "HTTP/1.1 200 OK\r\nX-Long: " + std::string(260, 'X') + "\r\n\r\n" + fixture("envoy_readings_monophase_surplus.json")
+        "HTTP/1.1 200 OK" + std::string(260, 'X') + "\r\n\r\n" + fixture("envoy_readings_monophase_surplus.json")
     }) {
         reset();
         envoyReplies.push_back({response, false});
@@ -463,6 +462,30 @@ TEST_CASE(EnvoyFirmware, TruncatedClosingArrayIsNotASuccess) {
     envoyReplies.push_back({response, false});
     LectureEnphase();
     ASSERT_FALSE(observedValid);
+    ASSERT_EQ(0u, EnvoyCompteSuccesLectureComplete);
+}
+
+TEST_CASE(EnvoyFirmware, LongHeaderLinesAreSkippedAndCookieStillCaptured) {
+    reset();
+    envoyReplies.push_back({"HTTP/1.1 200 OK\r\nContent-Security-Policy: " + std::string(600, 'X') +
+                            "\r\nSet-Cookie: sessionId=local-test; Path=/\r\n\r\n" +
+                            fixture("envoy_readings_monophase_surplus.json")});
+    LectureEnphase();
+    ASSERT_EQ(1u, EnvoyCompteSuccesLectureComplete);
+    ASSERT_EQ("local-test", std::string(EnvoySessionIdCookie.c_str()));
+
+    reset();
+    // Cookie tronqué par le tampon : jamais mis en cache.
+    envoyReplies.push_back({"HTTP/1.1 200 OK\r\nSet-Cookie: sessionId=" + std::string(400, 'S') +
+                            "\r\n\r\n" + fixture("envoy_readings_monophase_surplus.json")});
+    LectureEnphase();
+    ASSERT_EQ(1u, EnvoyCompteSuccesLectureComplete);
+    ASSERT_TRUE(EnvoySessionIdCookie.length() == 0);
+
+    reset();
+    envoyReplies.push_back({"HTTP/1.1 200 OK\r\nX-Flood: " + std::string(20000, 'X') +
+                            "\r\n\r\n" + fixture("envoy_readings_monophase_surplus.json")});
+    LectureEnphase();
     ASSERT_EQ(0u, EnvoyCompteSuccesLectureComplete);
 }
 
