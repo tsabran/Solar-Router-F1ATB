@@ -28,7 +28,8 @@ Options:
   -h, --help       Show this help
 
 Environment variables:
-  BUILD_TAG        Tag shown in the firmware version, timestamp appended if missing (default: localdev)
+  BUILD_TAG        Label shown in the firmware version and naming the release, used as is
+                   (default: <branch>[-wip]-<YYYYMMDDTHHMM>, -wip when there are local changes)
   BUILD_GIT_SHA    Commit shown in the firmware version (default: short HEAD of the work directory,
                    suffixed with -dirty when it has local changes)
   FQBN             Board when building without profile (default: esp32:esp32:esp32:PartitionScheme=custom)
@@ -69,9 +70,16 @@ FW_VERSION="$(sed -n 's/^#define[[:space:]]\{1,\}Version[[:space:]]\{1,\}"\([^"]
 IS_GIT=0
 git -C "$WORK_DIR" rev-parse --git-dir >/dev/null 2>&1 && IS_GIT=1
 
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BUILD_TAG="${BUILD_TAG:-localdev}"
-[[ "$BUILD_TAG" =~ [0-9]{8}-[0-9]{6} ]] || BUILD_TAG="$BUILD_TAG-$TIMESTAMP"
+if [[ -z "${BUILD_TAG:-}" ]]; then
+  # Default label: <branch>[-wip]-<timestamp>; -wip when uncommitted changes are built.
+  if [[ "$IS_GIT" -eq 1 ]]; then
+    wip=0
+    [[ -z "$(git -C "$WORK_DIR" status --porcelain --untracked-files=normal 2>/dev/null)" ]] || wip=1
+    BUILD_TAG="$(sr_build_label "$(git -C "$WORK_DIR" branch --show-current)" 0 "$wip" "$(sr_label_ts)")"
+  else
+    BUILD_TAG="nogit-$(sr_label_ts)"
+  fi
+fi
 [[ "$BUILD_TAG" =~ ^[A-Za-z0-9._+-]+$ ]] || die "BUILD_TAG may only contain [A-Za-z0-9._+-]: $BUILD_TAG"
 
 SR_ROOT="$(sr_output_root "$WORK_DIR")"

@@ -182,3 +182,29 @@ sr_app_partition_size() {
       exit
     }' "$1"
 }
+
+# Value of KEY in a KEY=value file (read, never sourced); empty if missing.
+sr_conf_get() {
+  [[ -f "$1" ]] || return 0
+  sed -n -E "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*$/\1/p" "$1" \
+    | tail -n1 | sed -E 's/[[:space:]]+$//'
+}
+
+# Build timestamp used in labels: ISO 8601 basic date and time, e.g. 20261013T0915.
+sr_label_ts() { date +%Y%m%dT%H%M; }
+
+# Branch/ref name reduced to a label-safe word: "feature/x y" -> "feature-x-y", max 24 chars.
+sr_label_part() {
+  printf '%s' "$1" | sed -E -e 's#^(refs/(heads|remotes|tags)/)?(origin/)?##' -e 's#[^A-Za-z0-9._-]+#-#g' \
+    -e 's#^-+##' | cut -c1-24 | sed -E 's#[-.]+$##'
+}
+
+# Build label: <base>[+N][-wip]-<timestamp>, e.g. main+3-wip-20261013T0915.
+sr_build_label() {
+  local base="$1" merged="$2" wip="$3" ts="$4" label
+  label="$(sr_label_part "$base")"
+  [[ -n "$label" ]] || label="detached"
+  [[ "$merged" -eq 0 ]] || label="$label+$merged"
+  [[ "$wip" -eq 0 ]] || label="$label-wip"
+  printf '%s-%s\n' "$label" "$ts"
+}

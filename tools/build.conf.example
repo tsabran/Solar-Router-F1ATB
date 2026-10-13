@@ -1,0 +1,8 @@
+# Local settings of merge-and-build.sh: copy to build.conf at the root of the main worktree
+# (ignored by git), or point SR_BUILD_CONF to another file.
+# Format: KEY=value, one per line; the file is read, never sourced.
+
+# Suffix of custom releases (merge-and-build.sh --release), lowercase letters/digits.
+# Tag v<version>-<suffix>.<N>, firmware version "<version> (<suffix>.<N> <sha>)",
+# release directory releases/<Sketch>_<suffix>.<N>/. Default: custom.
+RELEASE_SUFFIX=custom

@@ -13,6 +13,7 @@ releases/
 .env
 
 # Local build/deployment settings (see tools/*.conf.example)
+build.conf
 flash.conf
 merge-branches.conf
 
