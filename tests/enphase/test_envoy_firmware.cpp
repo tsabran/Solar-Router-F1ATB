@@ -601,6 +601,91 @@ TEST_CASE(EnvoyFirmware, FailedRenewalKeepsStoredTokenAndSaveFailureIsReported) 
     ASSERT_TRUE(reported);
 }
 
+TEST_CASE(EnvoyFirmware, StoredTokenSurvivesMDNSFailure) {
+    reset();
+    TokenEnphase = "";
+    RMSextIPauto = true;
+    MDNS.success = false;
+    const std::string stored(410, 'S');
+    flashFiles[ENPHASE_TOKEN_FILE] = "{\"token\":\"" + stored + "\"}";
+    Setup_Enphase();
+    ASSERT_TRUE(connections.empty());
+    ASSERT_EQ(stored, std::string(TokenEnphase.c_str()));
+}
+
+std::string withPhasePadding(size_t objectLength) {
+    JsonDocument doc;
+    deserializeJson(doc, fixture("envoy_readings_monophase_surplus.json"));
+    JsonObject phase = doc[0]["channels"][0];
+    phase["pad"] = "";
+    std::string text;
+    serializeJson(phase, text);
+    phase["pad"] = std::string(objectLength - text.size(), 'x');
+    std::string body;
+    serializeJson(doc, body);
+    return body;
+}
+
+std::string withHeaderPadding(size_t blockLength) {
+    JsonDocument source;
+    deserializeJson(source, fixture("envoy_readings_monophase_surplus.json"));
+    auto build = [&](size_t pad) {
+        JsonDocument doc;
+        JsonObject meter = doc.add<JsonObject>();
+        meter["pad"] = std::string(pad, 'x');
+        for (JsonPair field : source[0].as<JsonObject>()) meter[field.key()] = field.value();
+        doc.add(source[1]);
+        std::string body;
+        serializeJson(doc, body);
+        return body;
+    };
+    const std::string probe = build(0);
+    const size_t unit = probe.find('[', 1) - 1;  // texte lu entre le '[' initial et celui de "channels"
+    return build(blockLength - unit);
+}
+
+TEST_CASE(EnvoyFirmware, ReadBufferBoundaryOnPhaseAndHeaderBlocks) {
+    // 799 octets utiles : un bloc phase de 799 caractères ('}' compris) est le maximum accepté.
+    for (size_t length : {size_t(799), size_t(800)}) {
+        reset();
+        envoyReplies.push_back({"HTTP/1.1 200 OK\r\n\r\n" + withPhasePadding(length)});
+        LectureEnphase();
+        ASSERT_EQ(length == 799 ? 1u : 0u, EnvoyCompteSuccesLectureComplete);
+        ASSERT_EQ(length == 799 ? 1800 : 0, PuissanceI_M);
+    }
+    for (size_t length : {size_t(799), size_t(800)}) {
+        reset();
+        envoyReplies.push_back({"HTTP/1.1 200 OK\r\n\r\n" + withHeaderPadding(length)});
+        LectureEnphase();
+        ASSERT_EQ(length == 799 ? 1u : 0u, EnvoyCompteSuccesLectureComplete);
+    }
+}
+
+TEST_CASE(EnvoyFirmware, RealEightMeterResponseFeedsEnergyObserver) {
+    reset();
+    const auto body = fixture("envoy_readings_real_8meters.json");
+    JsonDocument doc;
+    ASSERT_FALSE(deserializeJson(doc, body));
+    envoyReplies.push_back({"HTTP/1.1 200 OK\r\n\r\n" + body});
+    LectureEnphase();
+    ASSERT_EQ(1u, EnvoyCompteSuccesLectureComplete);
+    ASSERT_TRUE(observedValid);
+    ASSERT_EQ(doc[1]["timestamp"].as<uint64_t>(), observed.stamp);
+    // Installation réelle triphasée : la puissance réseau vient de l'en-tête du compteur 2.
+    ASSERT_NEAR(doc[1]["activePower"].as<double>(), observed.powerW, 0.001);
+}
+
+TEST_CASE(EnvoyFirmware, RealisticTokenFitsRequestBufferWithoutFallback) {
+    reset();
+    TokenEnphase = std::string(600, 'T');
+    envoyReplies.push_back({ok()});
+    LectureEnphase();
+    ASSERT_EQ(1u, EnvoyCompteSuccesLectureComplete);
+    ASSERT_TRUE(requests[0].find("Bearer " + std::string(600, 'T') + "\r\n\r\n") != std::string::npos);
+    for (const auto& message : g_stockMessages)
+        ASSERT_TRUE(std::string(message.c_str()).find("too long") == std::string::npos);
+}
+
 TEST_CASE(EnvoyFirmware, CloudConnectFailureStopsBeforeTokenRequest) {
     reset();
     TokenEnphase = "";
