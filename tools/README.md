@@ -168,11 +168,23 @@ tools/flash.sh --serial --dry-run                    # affiche la commande espto
 tools/flash.sh --serial /dev/cu.usbserial-0001       # flash USB
 tools/flash.sh --ota 192.168.1.50 Solar_Router_V17_25_localdev-20261012-163206
 tools/flash.sh --ota                                 # cible = OTA_HOST de flash.conf
+tools/flash.sh --ota https://router.example.org --cookie auth_token=PROXY_COOKIE \
+               --cookie-domain example.org           # à distance, derrière un reverse proxy
 ```
+
+**OTA à distance** : `--ota` accepte une URL `https://…` (préfixe de chemin autorisé). Avec
+`--cookie NAME=ENVVAR` (ou `OTA_COOKIE` dans `flash.conf`), le cookie `NAME` est envoyé avec la
+valeur de la variable d'environnement `ENVVAR` : la valeur n'est jamais écrite dans un log,
+ni passée sur la ligne de commande (curl la lit via un descripteur de fichier). Garde-fous :
+un cookie exige `--cookie-domain`/`OTA_COOKIE_DOMAIN`, la cible doit être en `https://` sur ce
+domaine ou un sous-domaine (sinon refus avant toute requête), les redirections ne sont pas
+suivies. Une réponse 3xx/401/403 sur `/ParaFixe` (cookie absent ou expiré) arrête le flash
+avant l'envoi.
 
 **Configuration** : `flash.conf` à la racine du worktree principal (ignoré par git, modèle
 `tools/flash.conf.example`, autre chemin via `SR_FLASH_CONF`) fournit les cibles par défaut :
-`OTA_HOST=192.168.1.50` et, optionnel, `SERIAL_PORT=/dev/cu.usbserial-0001`. Le fichier
+`OTA_HOST=192.168.1.50` (ou une URL), optionnels `OTA_COOKIE`, `OTA_COOKIE_DOMAIN` et
+`SERIAL_PORT=/dev/cu.usbserial-0001`. Le fichier
 est lu (pas sourcé) ; une cible passée en argument est prioritaire.
 
 **Historique** : chaque déploiement réel (hors `--dry-run`, et seulement une fois confirmé)
@@ -191,5 +203,5 @@ column -ts$'\t' releases/DEPLOYMENTS.log        # quel firmware tourne où, depu
   et LittleFS (configuration du routeur) sont conservés. La carte doit déjà avoir la table
   de partitions Custom (tout routeur en version ≥ 14.02) ; pour une carte vierge, faire un
   premier téléversement depuis l'IDE Arduino (Partition Scheme → Custom).
-- **OTA** : envoie l'app sur `http://<ip>/update` (page « Mise à jour » du routeur), attend
+- **OTA** : envoie l'app sur `<cible>/update` (page « Mise à jour » du routeur), attend
   le redémarrage puis vérifie que `/ParaFixe` renvoie une version contenant le `BUILD_TAG`.

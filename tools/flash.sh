@@ -20,9 +20,19 @@ The SHA-256 of the firmware is checked against SHA256SUMS before flashing.
                    The board must already have the custom partition table (any router
                    firmware >= 14.02); for a blank board, upload once from the Arduino IDE.
                    PORT defaults to the only /dev/cu.usbserial*|SLAB*|wchusbserial*|usbmodem* port.
-  --ota [HOST]     POST the app to http://HOST/update (router web OTA), then wait for the
-                   router to come back and check that its version shows the BUILD_TAG.
-                   HOST defaults to OTA_HOST from flash.conf.
+  --ota [HOST|URL] POST the app to <URL>/update (router web OTA), then wait for the
+                   router to come back and check that /ParaFixe shows the BUILD_TAG.
+                   HOST (IP or name, optional :port) means http://HOST; a URL
+                   (http[s]://name[:port][/prefix]) allows a reverse proxy.
+                   Defaults to OTA_HOST from flash.conf.
+  --cookie NAME=ENVVAR
+                   OTA: send the cookie NAME with the value of the environment variable
+                   ENVVAR (e.g. auth_token=CADDY_ACTIVE_COOKIE). The value is never
+                   logged nor passed on the command line. Default: OTA_COOKIE in flash.conf.
+  --cookie-domain DOMAIN
+                   Required with a cookie: it is only sent over https:// to DOMAIN or one
+                   of its subdomains (redirects are never followed); any other target is
+                   refused before the first request. Default: OTA_COOKIE_DOMAIN in flash.conf.
   --baud N         Serial speed (default: 921600)
   --timeout S      OTA: seconds to wait for the reboot (default: 120)
   --dry-run        Show what would be done
@@ -33,7 +43,7 @@ Each real flash is logged in RELEASE/flash-<time>-<mode>-<target>.log and summar
 (before/after version, result) in releases/DEPLOYMENTS.log.
 
 Config: flash.conf in the main worktree (not versioned, see tools/flash.conf.example), or
-SR_FLASH_CONF. Keys: OTA_HOST, SERIAL_PORT.
+SR_FLASH_CONF. Keys: OTA_HOST, OTA_COOKIE, OTA_COOKIE_DOMAIN, SERIAL_PORT.
 Environment: SR_OUTPUT_ROOT (default: main worktree of this repository).
 USAGE
 }
@@ -42,6 +52,8 @@ ORIG_ARGS="$*"
 MODE=""
 PORT=""
 HOST=""
+COOKIE_SPEC=""
+COOKIE_DOMAIN=""
 BAUD=921600
 OTA_TIMEOUT=120
 DRY_RUN=0
@@ -52,8 +64,12 @@ while [[ $# -gt 0 ]]; do
     --serial) MODE=serial; shift
               if [[ $# -gt 0 && "$1" == /dev/* ]]; then PORT="$1"; shift; fi ;;
     --ota) MODE=ota; shift
-           # A host has no "_" (release names do) and no "/".
-           if [[ $# -gt 0 && "$1" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?$ ]]; then HOST="$1"; shift; fi ;;
+           # A host has no "_" (release names do) and no "/"; a URL has a scheme.
+           if [[ $# -gt 0 && ( "$1" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?$ || "$1" =~ ^https?:// ) ]]; then
+             HOST="$1"; shift
+           fi ;;
+    --cookie) [[ -n "${2:-}" ]] || die "--cookie requires NAME=ENVVAR"; COOKIE_SPEC="$2"; shift 2 ;;
+    --cookie-domain) [[ -n "${2:-}" ]] || die "--cookie-domain requires a DOMAIN"; COOKIE_DOMAIN="$2"; shift 2 ;;
     --baud) BAUD="$2"; shift 2 ;;
     --timeout) OTA_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -78,6 +94,34 @@ conf_get() {
 if [[ "$MODE" == ota && -z "$HOST" ]]; then
   HOST="$(conf_get OTA_HOST)"
   [[ -n "$HOST" ]] || die "--ota: no HOST given and no OTA_HOST in $FLASH_CONF (see tools/flash.conf.example)"
+fi
+if [[ "$MODE" == ota ]]; then
+  if [[ "$HOST" =~ ^https?:// ]]; then
+    BASE_URL="${HOST%/}"
+  else
+    BASE_URL="http://$HOST"
+  fi
+  [[ -n "$COOKIE_SPEC" ]] || COOKIE_SPEC="$(conf_get OTA_COOKIE)"
+  COOKIE_NAME=""
+  COOKIE_ENV=""
+  if [[ -n "$COOKIE_SPEC" ]]; then
+    [[ "$COOKIE_SPEC" =~ ^([A-Za-z0-9_.-]+)=([A-Za-z_][A-Za-z0-9_]*)$ ]] \
+      || die "--cookie/OTA_COOKIE must be NAME=ENVVAR, got: $COOKIE_SPEC"
+    COOKIE_NAME="${BASH_REMATCH[1]}"
+    COOKIE_ENV="${BASH_REMATCH[2]}"
+    # The cookie is a credential: refuse to send it anywhere but https://<allowed domain>.
+    [[ -n "$COOKIE_DOMAIN" ]] || COOKIE_DOMAIN="$(conf_get OTA_COOKIE_DOMAIN)"
+    COOKIE_DOMAIN="$(printf '%s' "${COOKIE_DOMAIN#.}" | tr 'A-Z' 'a-z')"
+    [[ "$COOKIE_DOMAIN" =~ ^[a-z0-9-]+(\.[a-z0-9-]+)+$ ]] \
+      || die "A cookie requires --cookie-domain/OTA_COOKIE_DOMAIN (e.g. example.org), got: '${COOKIE_DOMAIN}'"
+    [[ "$BASE_URL" =~ ^https://([A-Za-z0-9.-]+)(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$ ]] \
+      || die "Refusing to send cookie $COOKIE_NAME: target must be https://<host>[:port][/path], got: $BASE_URL"
+    url_host="$(printf '%s' "${BASH_REMATCH[1]}" | tr 'A-Z' 'a-z')"
+    [[ "$url_host" == "$COOKIE_DOMAIN" || "$url_host" == *".$COOKIE_DOMAIN" ]] \
+      || die "Refusing to send cookie $COOKIE_NAME to $url_host (allowed: $COOKIE_DOMAIN and its subdomains)"
+    printenv "$COOKIE_ENV" >/dev/null \
+      || die "Environment variable $COOKIE_ENV is not set/exported (cookie $COOKIE_NAME)"
+  fi
 fi
 if [[ "$MODE" == serial && -z "$PORT" ]]; then
   PORT="$(conf_get SERIAL_PORT)"
@@ -130,7 +174,7 @@ deploy_finish() {
   fi
   [[ "$rc" -eq 0 ]] && DEPLOY_RESULT=OK
   target="${HOST:-$PORT}"
-  flash_log="$RELEASE/flash-$FLASH_TS-$MODE-$(basename "$target" | tr ':' '_').log"
+  flash_log="$RELEASE/flash-$FLASH_TS-$MODE-$(printf '%s' "${target#*://}" | sed -e 's#/*$##' -e 's#[^A-Za-z0-9.-]#_#g').log"
   printf '%s\t%s\t%s\t%s\tbefore=%s\tafter=%s\trelease=%s\tsha256=%s\tlog=%s\n' \
     "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$DEPLOY_RESULT" "$MODE" "$target" \
     "${VERSION_BEFORE:--}" "${VERSION_AFTER:--}" "$ARTIFACT" "$(sr_sha256 "$APP_BIN")" \
@@ -208,39 +252,81 @@ flash_serial() {
 # ---------------------------------------------------------------------------
 # OTA (router web server)
 # ---------------------------------------------------------------------------
-router_version() {
-  curl -fsS --max-time 5 "http://$HOST/ParaFixe" 2>/dev/null \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("VersionTexte",""))' 2>/dev/null || true
+# curl with the optional auth cookie, given through a curl config on a file descriptor so the
+# value never appears in argv (ps) nor in the logs.
+ota_curl() {
+  if [[ -n "$COOKIE_NAME" ]]; then
+    curl --proto =https --max-redirs 0 -K <(printenv "$COOKIE_ENV" | sed -e 's/[\\"]/\\&/g' -e "s/^/cookie = \"$COOKIE_NAME=/" -e 's/$/"/') "$@"
+  else
+    curl "$@"
+  fi
+}
+
+# Prints "<http_code> <VersionTexte>" (code 000 when unreachable, version empty if not JSON).
+router_probe() {
+  local tmp code
+  tmp="$(mktemp)"
+  code="$(ota_curl -sS --max-time 10 -o "$tmp" -w '%{http_code}' "$BASE_URL/ParaFixe" 2>/dev/null)" || true
+  printf '%s %s\n' "${code:-000}" \
+    "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("VersionTexte",""))' "$tmp" 2>/dev/null || true)"
+  rm -f "$tmp"
+}
+
+auth_hint() {
+  local auth="no cookie sent, see --cookie"
+  [[ -z "$COOKIE_NAME" ]] || auth="check the cookie $COOKIE_NAME from \$$COOKIE_ENV"
+  case "$1" in
+    3??|401|403) printf ' (HTTP %s: authentication rejected? %s)' "$1" "$auth" ;;
+    000) printf ' (unreachable)' ;;
+    *) printf ' (HTTP %s)' "$1" ;;
+  esac
 }
 
 flash_ota() {
-  local before after deadline resp
-  log INFO "Router:    http://$HOST"
-  before="$(router_version)"
+  local probe code before after deadline resp
+  log INFO "Router:    $BASE_URL"
+  [[ -z "$COOKIE_NAME" ]] || log INFO "Auth:      cookie $COOKIE_NAME from \$$COOKIE_ENV (only for $COOKIE_DOMAIN)"
+  probe="$(router_probe)"
+  code="${probe%% *}"
+  before="${probe#* }"
   VERSION_BEFORE="$before"
-  [[ -n "$before" ]] || log WARN "Cannot read the current version from http://$HOST/ParaFixe"
+  if [[ -z "$before" ]]; then
+    log WARN "Cannot read the current version from $BASE_URL/ParaFixe$(auth_hint "$code")"
+    case "$code" in
+      3??|401|403|000) [[ "$DRY_RUN" -eq 1 ]] || die "Router not reachable through $BASE_URL, nothing sent" ;;
+    esac
+  fi
   log INFO "Current:   ${before:-unknown}"
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    printf '%b+ curl -F update=@%s http://%s/update%b\n' "$C_CMD" "$APP_BIN" "$HOST" "$C_RESET"
+    printf '%b+ curl%s -F update=@%s %s/update%b\n' "$C_CMD" \
+      "${COOKIE_NAME:+ --cookie $COOKIE_NAME=\$$COOKIE_ENV}" "$APP_BIN" "$BASE_URL" "$C_RESET"
     return 0
   fi
-  confirm "Upload $ARTIFACT to http://$HOST/update (the router reboots)?"
+  confirm "Upload $ARTIFACT to $BASE_URL/update (the router reboots)?"
   DEPLOY_STARTED=1
   log START "OTA upload"
-  local rc=0
-  resp="$(curl -fsS --max-time 300 -F "update=@$APP_BIN;filename=$ARTIFACT.ino.bin;type=application/octet-stream" \
-    "http://$HOST/update")" || rc=$?
-  # 6/7/28 = host not resolved / connection refused / timeout: nothing was sent.
-  case "$rc" in 6|7|28) die "Cannot reach http://$HOST/update (curl exit $rc)" ;; esac
+  local rc=0 body
+  body="$(mktemp)"
+  code="$(ota_curl -sS --max-time 300 -o "$body" -w '%{http_code}' \
+    -F "update=@$APP_BIN;filename=$ARTIFACT.ino.bin;type=application/octet-stream" \
+    "$BASE_URL/update")" || rc=$?
+  resp="$(head -c 200 "$body" | tr -d '\r\n')"
+  rm -f "$body"
+  # 6/7 = host not resolved / connection refused: nothing was sent.
+  case "$rc" in 6|7) die "Cannot reach $BASE_URL/update (curl exit $rc)" ;; esac
+  case "$code" in
+    3??|401|403) die "Upload refused$(auth_hint "$code")" ;;
+  esac
   # Otherwise the router may reboot before the response is complete: rely on the version check.
-  log INFO "Response:  ${resp:-(none)} (curl exit $rc)"
+  log INFO "Response:  ${resp:-(none)} (HTTP ${code:-000}, curl exit $rc)"
   [[ "$resp" != FAIL ]] || die "The router reported FAIL (see its Telnet/serial log)"
 
   log INFO "Waiting for reboot (max ${OTA_TIMEOUT}s)..."
   sleep 5
   deadline=$(( $(date +%s) + OTA_TIMEOUT ))
   while [[ "$(date +%s)" -lt "$deadline" ]]; do
-    after="$(router_version)"
+    probe="$(router_probe)"
+    after="${probe#* }"
     [[ -z "$after" ]] || VERSION_AFTER="$after"
     if [[ -n "$after" && ( -z "$BUILD_TAG" || "$after" == *"$BUILD_TAG"* ) ]]; then
       log OK "Router is running: $after"

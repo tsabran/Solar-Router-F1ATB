@@ -1,8 +1,16 @@
 # Copy to flash.conf in the main worktree (not versioned) and adapt.
 # Read by flash.sh (KEY=value, not sourced). Command-line arguments take precedence.
 
-# Router address for tools/flash.sh --ota (IP or hostname, optional :port)
+# Router address for tools/flash.sh --ota: IP or hostname (optional :port) for http://,
+# or a full URL, e.g. behind an authenticating reverse proxy: https://router.example.org
 OTA_HOST=192.168.1.50
+
+# Optional auth cookie for a reverse proxy: NAME=ENVVAR, the value is read from the
+# environment variable ENVVAR (never stored here, never logged).
+#OTA_COOKIE=auth_token=PROXY_COOKIE
+# Required with OTA_COOKIE: the cookie is only sent over https:// to this domain or its
+# subdomains; any other target is refused.
+#OTA_COOKIE_DOMAIN=example.org
 
 # USB serial port for tools/flash.sh --serial (optional; default: auto-detect)
 #SERIAL_PORT=/dev/cu.usbserial-0001
