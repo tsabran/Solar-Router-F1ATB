@@ -36,7 +36,11 @@ The SHA-256 of the firmware is checked against SHA256SUMS before flashing.
   --baud N         Serial speed (default: 921600)
   --timeout S      OTA: seconds to wait for the reboot (default: 120)
   --dry-run        Show what would be done
-  -y, --yes        Do not ask for confirmation
+  -y, --yes        Do not ask for confirmation (flash only, not the push below)
+  --push-ref       After a successful deployment, push the build ref (refs/builds/<label> or
+                   the release tag) to origin without asking. By default it is proposed
+                   interactively when it is not on origin yet, so that what runs on the
+                   router can always be rebuilt from the shared repository.
   -h, --help       Show this help
 
 Each real flash is logged in RELEASE/flash-<time>-<mode>-<target>.log and summarized
@@ -58,6 +62,7 @@ BAUD=921600
 OTA_TIMEOUT=120
 DRY_RUN=0
 YES=0
+PUSH_REF=0
 RELEASE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -74,6 +79,7 @@ while [[ $# -gt 0 ]]; do
     --timeout) OTA_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -y|--yes) YES=1; shift ;;
+    --push-ref) PUSH_REF=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "Unknown option: $1 (see --help)" ;;
     *) RELEASE="$1"; shift ;;
@@ -86,11 +92,7 @@ ARCHIVE_DIR="${ARCHIVE_DIR:-$SR_ROOT/releases}"
 
 # flash.conf: KEY=value lines (read, not sourced).
 FLASH_CONF="${SR_FLASH_CONF:-$SR_ROOT/flash.conf}"
-conf_get() {
-  [[ -f "$FLASH_CONF" ]] || return 0
-  sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*$/\1/p" "$FLASH_CONF" \
-    | tail -n1 | sed -E 's/[[:space:]]+$//'
-}
+conf_get() { sr_conf_get "$FLASH_CONF" "$1"; }
 if [[ "$MODE" == ota && -z "$HOST" ]]; then
   HOST="$(conf_get OTA_HOST)"
   [[ -n "$HOST" ]] || die "--ota: no HOST given and no OTA_HOST in $FLASH_CONF (see tools/flash.conf.example)"
@@ -146,6 +148,8 @@ APP_BIN="$RELEASE/$ARTIFACT.ino.bin"
 MANIFEST="$RELEASE/manifest.txt"
 manifest_get() { sed -n "s/^$1: \"\(.*\)\"$/\1/p" "$MANIFEST" 2>/dev/null | head -n1; }
 BUILD_TAG="$(manifest_get build_tag)"
+# Nested keys of the "source:" section (e.g. build_ref, repo).
+manifest_src() { sed -n "s/^  $1: \"\(.*\)\"$/\1/p" "$MANIFEST" 2>/dev/null | head -n1; }
 
 # ---------------------------------------------------------------------------
 # Deployment log: releases/<release>/flash-<time>-<target>.log for each real
@@ -197,6 +201,10 @@ fi
 log INFO "Release:   $RELEASE"
 log INFO "Build tag: ${BUILD_TAG:-unknown}"
 log INFO "Firmware:  $(wc -c < "$APP_BIN" | tr -d ' ') bytes, sha256 $(sr_sha256 "$APP_BIN")"
+log INFO "Git ref:   $(manifest_src build_ref || true)"
+case "$BUILD_TAG" in
+  *-wip-*) log WARN "Work-in-progress build: it includes uncommitted local changes (see worktree.patch)" ;;
+esac
 
 confirm() {
   [[ "$YES" -eq 1 || "$DRY_RUN" -eq 1 ]] && return 0
@@ -204,6 +212,46 @@ confirm() {
   local answer
   read -r -p "$1 [y/N] " answer
   [[ "$answer" == y || "$answer" == Y ]] || die "Aborted"
+}
+
+# A -wip build must be acknowledged even with --yes, unless SR_ALLOW_WIP=1.
+confirm_wip() {
+  case "$BUILD_TAG" in *-wip-*) ;; *) return 0 ;; esac
+  [[ "${SR_ALLOW_WIP:-0}" != 1 ]] || return 0
+  [[ -t 0 ]] || die "$BUILD_TAG is a -wip build: confirm interactively or set SR_ALLOW_WIP=1"
+  local answer
+  read -r -p "$BUILD_TAG includes uncommitted changes. Deploy it anyway? [y/N] " answer
+  [[ "$answer" == y || "$answer" == Y ]] || die "Aborted"
+}
+
+# After a successful deployment: make sure the build ref is on origin (asked, never implied by --yes).
+offer_push_ref() {
+  local ref repo answer
+  ref="$(manifest_src build_ref || true)"
+  if [[ -z "$ref" ]]; then
+    log WARN "No build ref in the manifest (--no-ref build): it cannot be rebuilt from git"
+    return 0
+  fi
+  repo="$(manifest_src repo || true)"
+  [[ -d "$repo" ]] || repo="$SR_ROOT"
+  git -C "$repo" rev-parse -q --verify "$ref" >/dev/null || { log WARN "$ref not found in $repo"; return 0; }
+  if [[ -n "$(git -C "$repo" ls-remote origin "$ref" 2>/dev/null)" ]]; then
+    log INFO "$ref is on origin"
+    return 0
+  fi
+  if [[ "$PUSH_REF" -eq 0 ]]; then
+    if [[ ! -t 0 ]]; then
+      log WARN "$ref is only local. Publish it with: git -C $repo push origin $ref"
+      return 0
+    fi
+    read -r -p "Push $ref to origin? [y/N] " answer
+    [[ "$answer" == y || "$answer" == Y ]] || { log INFO "Not pushed. Later: git -C $repo push origin $ref"; return 0; }
+  fi
+  if run_cmd git -C "$repo" push origin "$ref"; then
+    log OK "$ref pushed to origin"
+  else
+    log WARN "Push failed (the deployment itself succeeded): git -C $repo push origin $ref"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -245,6 +293,7 @@ flash_serial() {
     return 0
   fi
   confirm "Flash $ARTIFACT on $PORT?"
+  confirm_wip
   DEPLOY_STARTED=1
   run_step "esptool write-flash" "${cmd[@]}"
 }
@@ -303,6 +352,7 @@ flash_ota() {
     return 0
   fi
   confirm "Upload $ARTIFACT to $BASE_URL/update (the router reboots)?"
+  confirm_wip
   DEPLOY_STARTED=1
   log START "OTA upload"
   local rc=0 body
@@ -330,7 +380,8 @@ flash_ota() {
     probe="$(router_probe)"
     after="${probe#* }"
     [[ -z "$after" ]] || VERSION_AFTER="$after"
-    if [[ -n "$after" && ( -z "$BUILD_TAG" || "$after" == *"$BUILD_TAG"* ) ]]; then
+    # VersionTexte is "<version> (<label> <sha>)": match the whole label (custom.1 != custom.10).
+    if [[ -n "$after" && ( -z "$BUILD_TAG" || "$after" == *"($BUILD_TAG "* ) ]]; then
       log OK "Router is running: $after"
       return 0
     fi
@@ -343,3 +394,4 @@ case "$MODE" in
   serial) flash_serial ;;
   ota) flash_ota ;;
 esac
+[[ "$DRY_RUN" -eq 1 ]] || offer_push_ref
