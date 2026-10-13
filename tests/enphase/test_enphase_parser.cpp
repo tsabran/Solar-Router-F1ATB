@@ -211,3 +211,20 @@ TEST_CASE(Enphase, ErreurHttpEnvoyRefuse) {
     ASSERT_TRUE(!g_stockMessages.empty());
     ASSERT_EQ("Envoy refused request", g_stockMessages.back());
 }
+
+// Capture réelle anonymisée : 8 compteurs, JSON indenté, Content-Length.
+TEST_CASE(Enphase, LectureReponseReelleHuitCompteurs) {
+    reset_router_state();
+
+    std::string jsonBody = read_fixture_file("tests/enphase/fixtures/envoy_readings_real_8meters.json");
+    std::string httpResponse = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: " +
+                               std::to_string(jsonBody.size()) + "\r\n\r\n" + jsonBody;
+
+    NetworkClientSecure client;
+    client.feedData(httpResponse);
+
+    ASSERT_TRUE(ExecLectureEnphase(client));
+    ASSERT_NEAR(4022.4f, PactProd, 1.0f);
+    ASSERT_NEAR(-92.1f, PactReseau, 1.0f);
+    ASSERT_TRUE(PuissanceRecue);
+}
