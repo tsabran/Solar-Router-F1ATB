@@ -30,6 +30,8 @@ unsigned long esp_get_free_internal_heap_size() { return 100000; }
 void CacheEtClose(int) {}
 const char* MainJS1 = "main-js-1", *MainJS2 = "main-js-2", *MainJS3 = "main-js-3";
 const char* PageBrute = "brute-html", *PageBruteJS1 = "brute-js-1", *PageBruteJS2 = "brute-js-2";
+const char* CommunCSS = "css-body{}";
+String Couleurs;
 String nomSondeFixe, Source_data, EnphaseSerial = "0", GS = "|", RS = ";";
 int PuisMaxS_M = 1, PuisMaxI_M = 2, PuisMaxS_T = 3, PuisMaxI_T = 4;
 int IdxStockPW = 599, NbActions = 3, ITmode = 0;
@@ -63,6 +65,19 @@ TEST_CASE(EnvoyWeb, StaticStreamingMatchesBodyAndContentLength) {
         server = {};
         handler();
         ASSERT_EQ(std::string(expected), server.body);
+    }
+}
+
+TEST_CASE(EnvoyWeb, CommunCssStreamsPrefixAndStaticBody) {
+    for (const char* couleurs : {"", "aabbccddeeff112233"}) {
+        server = {};
+        Couleurs = couleurs;
+        handleCommunCSS();
+        const std::string expected = std::string(couleurs[0] ? "#aabbcc" : "#ffffff");
+        ASSERT_EQ(std::string("text/css"), server.type);
+        ASSERT_EQ(server.body.size(), server.contentLength);
+        ASSERT_TRUE(server.body.find(expected) != std::string::npos);
+        ASSERT_EQ(std::string("css-body{}"), server.body.substr(server.body.size() - 10));
     }
 }
 
