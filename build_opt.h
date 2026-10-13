@@ -1,2 +1,2 @@
 -Wno-missing-field-initializers
--DBUILD_TAG=\"custom\"
+-DBUILD_TAG=\"ide\"
