@@ -1,7 +1,10 @@
 #include "../../EnergyMetrics.h"
 #include "../../EnvoyEnergySample.h"
 #include "../harness/test_runner.h"
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <string>
 
 namespace MetricsTests {
 using energy_metrics::Counter;
@@ -304,6 +307,39 @@ TEST_CASE(Metrics, HeaderPhaseAndMalformedPayloadValidation) {
   for (const char* bad : {"", "null", "{\"activePower\":null}", "{\"activePower\":true}",
                           "{\"activePower\":1e999}", "{\"activePower\":NaN}"})
     ASSERT_FALSE(ParseEnvoyPhasePower(bad, watts));
+}
+
+static std::string readUntil(const std::string& body, size_t& pos, char end) {
+  const size_t stop = body.find(end, pos);
+  ASSERT_TRUE(stop != std::string::npos);
+  std::string chunk = body.substr(pos, stop + 1 - pos);
+  pos = stop + 1;
+  return chunk;
+}
+
+// Slices the real pretty-printed Envoy capture exactly like LectureEnphase does.
+TEST_CASE(Metrics, RealPrettyPrintedEnvoyBlocks) {
+  std::ifstream file("tests/enphase/fixtures/envoy_readings_real_8meters.json");
+  ASSERT_TRUE(file.is_open());
+  const std::string body((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+  size_t pos = body.find('[') + 1;
+  std::string header, phase;
+  for (int meter = 0; meter < 2; ++meter) {
+    header = readUntil(body, pos, '[');
+    ASSERT_TRUE(header.size() < 1024);
+    for (int i = 0; i < 3; ++i) {
+      std::string current = readUntil(body, pos, '}');
+      ASSERT_TRUE(current.size() < 1024);
+      if (i == 0) phase = current;
+    }
+  }
+  EnvoyEnergySample sample;
+  ASSERT_TRUE(ParseEnvoyReadingHeader(header.c_str(), sample));
+  ASSERT_EQ(uint64_t(1791895104), sample.stamp);
+  ASSERT_TRUE(std::abs(sample.powerW + 92.077) < 1e-3);
+  double watts = 0;
+  ASSERT_TRUE(ParseEnvoyPhasePower(phase.c_str(), watts));
+  ASSERT_TRUE(std::abs(watts - 1128.769) < 1e-3);
 }
 
 TEST_CASE(Metrics, OneHourAgainstIndependentIntervalOracle) {
