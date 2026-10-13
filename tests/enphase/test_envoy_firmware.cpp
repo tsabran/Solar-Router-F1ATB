@@ -21,7 +21,7 @@ uint32_t RMSextIP = 0xc0a80164;
 String EnphaseUser = "test@example.invalid", EnphasePwd = "test-only";
 String EnphaseSerial = "12345", TokenEnphase, EnvoySessionIdCookie;
 uint32_t previousTimeRMSMin, previousTimeRMSMax, previousTimeRMSMoy, previousTimeRMS;
-uint32_t LastRMS_Millis, PeriodeProgMillis, lastTokenUpdate;
+uint32_t LastRMS_Millis, PeriodeProgMillis;
 NetworkClientSecure clientSecu;
 #define FILE_READ "r"
 #define FILE_WRITE "w"
@@ -107,7 +107,6 @@ void reset() {
     EnphaseSerial = "12345";
     RMSextIPauto = false;
     RMSextIP = 0xc0a80164;
-    lastTokenUpdate = millis();
     MDNS.success = true;
     MDNS.ip = IPAddress(192, 168, 1, 100);
     PactProd = PactConso_M = Tension_M = Intensite_M = Frequence = PowerFactor_M = 0;
@@ -257,7 +256,6 @@ TEST_CASE(EnvoyFirmware, Bearer401And403RenewalRateLimited) {
         ASSERT_EQ(std::string(90, 'N'), std::string(TokenEnphase.c_str()));
         ASSERT_EQ(size_t(3), connections.size());
         ASSERT_FALSE(observedValid);
-        ASSERT_EQ(millis(), lastTokenUpdate);
         envoyReplies.push_back({"HTTP/1.1 401 Rejected\r\n\r\n"});
         LectureEnphase();
         ASSERT_EQ(size_t(4), connections.size());
@@ -447,25 +445,16 @@ TEST_CASE(EnvoyFirmware, WatchdogRunsOnAllEarlyReturnsAndRecovers) {
     }
 }
 
-TEST_CASE(EnvoyFirmware, ScheduledRenewalClearsCookieAndFailedAttemptIsGated) {
+TEST_CASE(EnvoyFirmware, ValidTokenIsNotRenewedPeriodically) {
     reset();
     EnvoySessionIdCookie = "old-cookie";
-    advance_simulated_millis(30UL * 24 * 60 * 60 * 1000 + 10);
-    queueRenewal();
+    advance_simulated_millis(45UL * 24 * 60 * 60 * 1000);
     envoyReplies.push_back({ok()});
     LectureEnphase();
-    ASSERT_EQ(std::string(90, 'N'), std::string(TokenEnphase.c_str()));
-    ASSERT_TRUE(requests[requests.size() - 1].find("Authorization: Bearer ") != std::string::npos);
     ASSERT_EQ(1u, EnvoyCompteSuccesLectureComplete);
-    advance_simulated_millis(30UL * 24 * 60 * 60 * 1000 + 10);
-    queueRenewal(false);
-    envoyReplies.push_back({ok()});
-    LectureEnphase();
-    const auto count = connections.size();
-    envoyReplies.push_back({ok()});
-    LectureEnphase();
-    ASSERT_EQ(count, connections.size());
-    ASSERT_EQ(std::string(90, 'N'), std::string(TokenEnphase.c_str()));
+    ASSERT_TRUE(cloudReplies.empty());
+    ASSERT_EQ(size_t(1), connections.size());
+    ASSERT_EQ(std::string(80, 'T'), std::string(TokenEnphase.c_str()));
 }
 
 TEST_CASE(EnvoyFirmware, CloudTimeoutHTTPErrorAndConnectFailureAreBounded) {

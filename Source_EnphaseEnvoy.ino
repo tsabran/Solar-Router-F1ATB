@@ -179,7 +179,7 @@ void Setup_Enphase(bool NewToken) {
 }
 
 
-// Delai minimum entre deux demandes de token hors renouvellement periodique
+// Delai minimum entre deux demandes de token
 // (chaque demande = 2 connexions TLS bloquantes vers Enlighten)
 constexpr uint32_t TOKEN_RETRY_MS = 5UL * 60UL * 1000UL;
 
@@ -196,7 +196,6 @@ void RenouvelleTokenEnphase() {
   TokenEnphase = "";
   Setup_Enphase(true);
   if (TokenEnphase.length() > 50) {
-    lastTokenUpdate = millis();  // repart pour 30 jours
     EnvoySessionIdCookie = "";
     StockMessage("Enphase token renewed");
   } else {
@@ -478,8 +477,6 @@ void LectureEnphase()
   const char* baseRequest = s_baseRequestBuf;
   static NetworkClientSecure client;
 
-  constexpr uint32_t TOKEN_REFRESH_MS = 30UL * 24UL * 60UL * 60UL * 1000UL;
-
   // Token absent (ex: Enlighten injoignable au boot) : on retente periodiquement
   if (TokenEnphase.length() <= 50 && EnphaseUser != "" && EnphasePwd != "" && EnphaseTokenRetryAllowed()) {
     StockMessage("Enphase token missing, requesting a new one...");
@@ -489,11 +486,7 @@ void LectureEnphase()
   if (TokenEnphase.length() > 50 && EnphaseUser != "") 
   {  
     // Connexion pour firmware V7 en https
-    
-    if (uint32_t(millis() - lastTokenUpdate) > TOKEN_REFRESH_MS && EnphaseTokenRetryAllowed())
-	  {    // Tout les 30 jours on recherche un nouveau Token
-      RenouvelleTokenEnphase();
-    }
+    // Token propriétaire valable ~1 an : renouvelé uniquement sur refus 401/403 de l'Envoy.
 
     // `Cookie: sessionId=...` est le cookie de session local de l'Envoy, et non le `session_id` Enlighten/entrez.
     // Il fait gagner environ 25 ms sur chaque appel a la gateway Envoy par rapport a `Authorization: Bearer`.
