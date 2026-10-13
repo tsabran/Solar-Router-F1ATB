@@ -1052,7 +1052,9 @@ void handleCommunCSS() {
     S += "#" + Couleurs.substring(0, 6);
   }
   S += ";}\n";
-  server.send(200, "text/css", S + CommunCSS);
+  server.setContentLength(S.length() + strlen(CommunCSS));  // évite de copier CommunCSS dans un String
+  server.send(200, "text/css", S);
+  server.sendContent(CommunCSS, strlen(CommunCSS));
 }
 
 void handleFavicon() {
@@ -1109,46 +1111,10 @@ void ExtraitCookie() {
   }
 }
 
-// class pour découper au format chunked attendu par navigateur
-class ChunkedWriter : public Print {
-  public:
-    ChunkedWriter(WiFiClient& client) : _client(client), _pos(0) {}
-
-    size_t write(uint8_t c) override {  // receptionne les octets un par un
-      _buffer[_pos++] = c;
-      if (_pos == 512) flushChunk(); // Envoie un chunk dès que le buffer est plein
-      return 1;
-    }
-
-    size_t write(const uint8_t* buffer, size_t size) override {
-      for (size_t i = 0; i < size; i++) write(buffer[i]);
-      return size;
-    }
-
-    void finalise() {
-      flushChunk(); // Envoie le reste du buffer
-      _client.print("0\r\n\r\n"); // Marqueur de fin HTTP
-    }
-
-  private:
-    void flushChunk() {
-      if (_pos == 0) return;
-      _client.print(_pos, HEX);
-      _client.print("\r\n");
-      _client.write(_buffer, _pos);
-      _client.print("\r\n");
-      _pos = 0;
-    }
-
-    WiFiClient& _client;
-    uint8_t _buffer[512]; // Buffer de 512 octets (bon compromis RAM/Vitesse)
-    size_t _pos;
-};
-
 void envoyerHistoriqueEnergie(WebServer &serverRef) {
   // Streaming JSON sans JsonDocument ni copie de socket :
   //  - pas d'allocation ArduinoJson (~90 entrées supprimées du heap)
-  //  - sendContent() natif WebServer au lieu du ChunkedWriter sur raw NetworkClient
+  //  - sendContent() natif WebServer (chunked géré par le core)
   //  - esp_task_wdt_reset() dans la boucle pour éviter le watchdog sur gros fichiers
   int M0 = DateAMJ.substring(4, 6).toInt();
   int an0 = DateAMJ.substring(0, 4).toInt();
