@@ -26,8 +26,8 @@ Bases (combinable, --localdev is the default):
 Options:
   --workdir PATH    Source repository/worktree (default: current directory if it is a git
                     repo, else the directory of this script)
-  --config FILE     Branch list (default: merge-branches.conf in the main worktree, not
-                    versioned, see tools/merge-branches.conf.example; or SR_MERGE_CONF)
+  --config FILE     Build config (default: build.conf in the main worktree, not versioned,
+                    see tools/build.conf.example; or SR_BUILD_CONF): MERGE_BRANCHES, RELEASE_SUFFIX
   --no-merge        Build the base only (ignore config and arguments)
   --dry-run         Resolve refs and test the merges in a temporary clone, without compiling
   --no-test         Skip running native tests (tests/run-tests.sh)
@@ -42,13 +42,13 @@ Options:
   --list-branches   List local branches and whether the config selects them, then exit
   -h, --help        Show this help
 
-Branches given as arguments replace the config file. Each name is resolved in the source
+Branches given as arguments replace MERGE_BRANCHES of the config. Each name is resolved in the source
 repository as refs/heads/NAME, then refs/remotes/origin/NAME, then any commit-ish.
 
 Label (shown in the firmware version "17.26 (<label> <sha>)" and naming the release):
   <base>[+N][-wip]-<YYYYMMDDTHHMM>   base branch, N merged branches, -wip if local changes
   <RELEASE_SUFFIX>.<N>               --release (e.g. custom.3 for tag v17.26-custom.3)
-RELEASE_SUFFIX comes from build.conf in the main worktree (or SR_BUILD_CONF), default custom.
+RELEASE_SUFFIX comes from the config, default custom.
 
 Outputs (SR_OUTPUT_ROOT, default: main worktree of the repository):
   releases/<Sketch>_<label>/   firmware, manifest.txt, worktree.patch, logs
@@ -65,7 +65,7 @@ USAGE
 MODES=()
 BASE_REF=""
 WORK_DIR=""
-CONFIG_FILE="${SR_MERGE_CONF:-}"
+CONFIG_FILE="${SR_BUILD_CONF:-}"
 NO_MERGE=0
 DRY_RUN=0
 RUN_TESTS=1
@@ -112,31 +112,38 @@ REPO_ROOT="$(git -C "$WORK_DIR" rev-parse --show-toplevel 2>/dev/null)" || die "
 SR_ROOT="$(sr_output_root "$REPO_ROOT")"
 export SR_OUTPUT_ROOT="$SR_ROOT"
 if [[ -z "$CONFIG_FILE" ]]; then
-  CONFIG_FILE="$SR_ROOT/merge-branches.conf"
+  CONFIG_FILE="$SR_ROOT/build.conf"
 elif [[ "$CONFIG_FILE" != /* ]]; then
   CONFIG_FILE="$PWD/$CONFIG_FILE"
 fi
+# build.conf is bash: MERGE_BRANCHES=(...) and RELEASE_SUFFIX=...
+MERGE_BRANCHES=()
+RELEASE_SUFFIX=""
+CONFIG_LOADED=0
+if [[ -f "$CONFIG_FILE" ]]; then
+  # shellcheck source=/dev/null
+  source "$CONFIG_FILE"
+  CONFIG_LOADED=1
+fi
+RELEASE_SUFFIX="${RELEASE_SUFFIX:-custom}"
+[[ "$RELEASE_SUFFIX" =~ ^[a-z][a-z0-9]*$ ]] \
+  || die "RELEASE_SUFFIX must be lowercase letters/digits (e.g. custom), got: $RELEASE_SUFFIX ($CONFIG_FILE)"
 
-# Checked outside read_config: a die inside $(...) or <(...) would not stop the script.
 check_config() {
-  [[ -f "$CONFIG_FILE" ]] || die "Config file not found: $CONFIG_FILE (copy tools/merge-branches.conf.example there, or pass branches as arguments)"
-}
-
-read_config() {
-  sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$CONFIG_FILE" | grep -v '^$' || true
+  [[ "$CONFIG_LOADED" -eq 1 ]] || die "Config file not found: $CONFIG_FILE (copy tools/build.conf.example there, or pass branches as arguments)"
 }
 
 if [[ "$LIST_BRANCHES" -eq 1 ]]; then
   check_config
-  selected="$(read_config)"
   echo "Config: $CONFIG_FILE"
   git -C "$REPO_ROOT" for-each-ref --sort=-committerdate \
     --format='%(refname:short)|%(objectname:short)|%(committerdate:short)|%(subject)' refs/heads \
     | while IFS='|' read -r name sha date subject; do
-        mark=" "; grep -Fxq "$name" <<<"$selected" && mark="*"
+        mark=" "
+        for b in ${MERGE_BRANCHES[@]+"${MERGE_BRANCHES[@]}"}; do [[ "$b" != "$name" ]] || mark="*"; done
         printf '%s %-40s %s %s %s\n' "$mark" "$name" "$sha" "$date" "${subject:0:60}"
       done
-  echo "(* = selected in config)"
+  echo "(* = in MERGE_BRANCHES)"
   exit 0
 fi
 
@@ -144,23 +151,16 @@ BRANCHES=()
 BRANCH_SOURCE="$CONFIG_FILE"
 if [[ "$NO_MERGE" -eq 1 ]]; then
   BRANCH_SOURCE="none (--no-merge)"
+elif [[ $# -gt 0 ]]; then
+  BRANCHES=("$@")
+  BRANCH_SOURCE="arguments"
 else
-  if [[ $# -gt 0 ]]; then
-    BRANCHES=("$@")
-    BRANCH_SOURCE="arguments"
-  else
-    check_config
-    while IFS= read -r b; do BRANCHES+=("$b"); done < <(read_config)
-  fi
+  check_config
+  BRANCHES=(${MERGE_BRANCHES[@]+"${MERGE_BRANCHES[@]}"})
 fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)-$$"
 LABEL_TS="$(sr_label_ts)"
-BUILD_CONF="${SR_BUILD_CONF:-$SR_ROOT/build.conf}"
-RELEASE_SUFFIX="$(sr_conf_get "$BUILD_CONF" RELEASE_SUFFIX)"
-RELEASE_SUFFIX="${RELEASE_SUFFIX:-custom}"
-[[ "$RELEASE_SUFFIX" =~ ^[a-z][a-z0-9]*$ ]] \
-  || die "RELEASE_SUFFIX must be lowercase letters/digits (e.g. custom), got: $RELEASE_SUFFIX ($BUILD_CONF)"
 # Copied into each release as merge-and-build.log, then removed.
 RUN_LOG="$SR_ROOT/.tmp-build/merge-and-build_$RUN_TS.log"
 CLONES=()

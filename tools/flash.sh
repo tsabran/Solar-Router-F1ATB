@@ -90,11 +90,13 @@ done
 SR_ROOT="$(sr_output_root "$SCRIPT_DIR")"
 ARCHIVE_DIR="${ARCHIVE_DIR:-$SR_ROOT/releases}"
 
-# flash.conf: KEY=value lines (read, not sourced).
+# flash.conf is bash: OTA_HOST, OTA_COOKIE, OTA_COOKIE_DOMAIN, SERIAL_PORT.
 FLASH_CONF="${SR_FLASH_CONF:-$SR_ROOT/flash.conf}"
-conf_get() { sr_conf_get "$FLASH_CONF" "$1"; }
+OTA_HOST="" OTA_COOKIE="" OTA_COOKIE_DOMAIN="" SERIAL_PORT=""
+# shellcheck source=/dev/null
+[[ ! -f "$FLASH_CONF" ]] || source "$FLASH_CONF"
 if [[ "$MODE" == ota && -z "$HOST" ]]; then
-  HOST="$(conf_get OTA_HOST)"
+  HOST="$OTA_HOST"
   [[ -n "$HOST" ]] || die "--ota: no HOST given and no OTA_HOST in $FLASH_CONF (see tools/flash.conf.example)"
 fi
 if [[ "$MODE" == ota ]]; then
@@ -103,7 +105,7 @@ if [[ "$MODE" == ota ]]; then
   else
     BASE_URL="http://$HOST"
   fi
-  [[ -n "$COOKIE_SPEC" ]] || COOKIE_SPEC="$(conf_get OTA_COOKIE)"
+  [[ -n "$COOKIE_SPEC" ]] || COOKIE_SPEC="$OTA_COOKIE"
   COOKIE_NAME=""
   COOKIE_ENV=""
   if [[ -n "$COOKIE_SPEC" ]]; then
@@ -112,7 +114,7 @@ if [[ "$MODE" == ota ]]; then
     COOKIE_NAME="${BASH_REMATCH[1]}"
     COOKIE_ENV="${BASH_REMATCH[2]}"
     # The cookie is a credential: refuse to send it anywhere but https://<allowed domain>.
-    [[ -n "$COOKIE_DOMAIN" ]] || COOKIE_DOMAIN="$(conf_get OTA_COOKIE_DOMAIN)"
+    [[ -n "$COOKIE_DOMAIN" ]] || COOKIE_DOMAIN="$OTA_COOKIE_DOMAIN"
     COOKIE_DOMAIN="$(printf '%s' "${COOKIE_DOMAIN#.}" | tr 'A-Z' 'a-z')"
     [[ "$COOKIE_DOMAIN" =~ ^[a-z0-9-]+(\.[a-z0-9-]+)+$ ]] \
       || die "A cookie requires --cookie-domain/OTA_COOKIE_DOMAIN (e.g. example.org), got: '${COOKIE_DOMAIN}'"
@@ -126,7 +128,7 @@ if [[ "$MODE" == ota ]]; then
   fi
 fi
 if [[ "$MODE" == serial && -z "$PORT" ]]; then
-  PORT="$(conf_get SERIAL_PORT)"
+  PORT="$SERIAL_PORT"
 fi
 
 # ---------------------------------------------------------------------------

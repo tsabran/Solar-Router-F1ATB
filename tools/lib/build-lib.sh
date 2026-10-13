@@ -183,13 +183,6 @@ sr_app_partition_size() {
     }' "$1"
 }
 
-# Value of KEY in a KEY=value file (read, never sourced); empty if missing.
-sr_conf_get() {
-  [[ -f "$1" ]] || return 0
-  sed -n -E "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*$/\1/p" "$1" \
-    | tail -n1 | sed -E 's/[[:space:]]+$//'
-}
-
 # Build timestamp used in labels: ISO 8601 basic date and time, e.g. 20261013T0915.
 sr_label_ts() { date +%Y%m%dT%H%M; }
 

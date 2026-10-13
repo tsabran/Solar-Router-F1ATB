@@ -15,7 +15,6 @@ releases/
 # Local build/deployment settings (see tools/*.conf.example)
 build.conf
 flash.conf
-merge-branches.conf
 
 # Build artifacts for native test suite
 tests/.build/

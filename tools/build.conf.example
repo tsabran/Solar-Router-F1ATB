@@ -1,8 +1,20 @@
-# Local settings of merge-and-build.sh: copy to build.conf at the root of the main worktree
-# (ignored by git), or point SR_BUILD_CONF to another file.
-# Format: KEY=value, one per line; the file is read, never sourced.
+# Copy to build.conf in the main worktree (not versioned) and adapt.
+# Bash syntax, sourced by tools/merge-and-build.sh: keep only these variable assignments.
+# Another path can be given with --config FILE or SR_BUILD_CONF.
 
-# Suffix of custom releases (merge-and-build.sh --release), lowercase letters/digits.
-# Tag v<version>-<suffix>.<N>, firmware version "<version> (<suffix>.<N> <sha>)",
-# release directory releases/<Sketch>_<suffix>.<N>/. Default: custom.
+# MERGE_BRANCHES: branches merged on top of the base, in this order (one per line,
+#   comment a line to exclude it). Branches given as arguments replace this list.
+#   Names are resolved as local branch, then origin/<name>, then any commit-ish.
+#   List available branches: tools/merge-and-build.sh --list-branches
+MERGE_BRANCHES=(
+  build-automation
+  feature/mode-sequenceur
+  ota-improve
+  # fix/serverHisto1an
+)
+
+# RELEASE_SUFFIX: suffix of custom releases (merge-and-build.sh --release), lowercase
+#   letters/digits. Tag v<version>-<suffix>.<N>, firmware version
+#   "<version> (<suffix>.<N> <sha>)", release directory releases/<Sketch>_<suffix>.<N>/.
+#   Default: custom.
 RELEASE_SUFFIX=custom

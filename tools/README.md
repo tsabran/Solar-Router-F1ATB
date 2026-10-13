@@ -12,16 +12,17 @@ du sketch (elles fonctionnent aussi depuis n'importe quel répertoire du dépôt
 | `tools/merge-and-build.sh` | Clone temporaire, merges, compilation, archivage, `refs/builds/<label>`, tags de release |
 | `tools/build-binary.sh` | Compilation d'un répertoire de sources et archivage dans `releases/` |
 | `tools/flash.sh` | Flash série (esptool) ou OTA web (`/update`) d'une release archivée |
-| `tools/merge-branches.conf.example` | Modèle de la liste ordonnée des branches à merger |
 | `tools/flash.conf.example` | Modèle de configuration locale de `flash.sh` |
-| `tools/build.conf.example` | Modèle de configuration locale de `merge-and-build.sh` (`RELEASE_SUFFIX`) |
+| `tools/build.conf.example` | Modèle de configuration locale de `merge-and-build.sh` (`MERGE_BRANCHES`, `RELEASE_SUFFIX`) |
 | `tools/lib/` | Fonctions communes (`build-lib.sh`), génération du manifeste (`write-manifest.py`) |
 | `sketch.yaml` | Profil arduino-cli : plateforme et bibliothèques figées (reste à la racine du sketch) |
 | `partitions.csv` | Table de partitions (« Partition Scheme → Custom » dans l'IDE) |
 
 Fichiers locaux, non versionnés, à la racine du worktree principal : `releases/` (binaires,
-manifestes, logs, `DEPLOYMENTS.log`), `merge-branches.conf` (branches à merger), `build.conf`
-(suffixe des releases), `flash.conf` (cibles de flash) et `.tmp-build/` (répertoire de travail temporaire).
+manifestes, logs, `DEPLOYMENTS.log`), `build.conf` (branches à merger,
+suffixe des releases), `flash.conf` (cibles de flash) et `.tmp-build/` (répertoire de travail temporaire).
+Si la branche du worktree principal n'a pas le `.gitignore` de `build-automation`, les
+ajouter à `.git/info/exclude` : sinon ils comptent comme modifications locales (label `-wip`).
 
 ## Installation de la toolchain
 
@@ -102,9 +103,25 @@ il ne modifie ni les branches ni le working tree.
 | localrelease | `--localrelease` | `origin/main` après `git fetch origin main` |
 | quelconque | `--base REF` | branche, tag ou commit, sans modifications locales |
 
-Les branches de `merge-branches.conf` (racine du worktree principal, ignoré par git, modèle
-`tools/merge-branches.conf.example`, autre chemin via `--config` ou `SR_MERGE_CONF`), ou passées
-en arguments (qui remplacent le fichier), sont ensuite mergées dans l'ordre, en `--no-ff`, par SHA résolu au démarrage.
+Les branches de `MERGE_BRANCHES` dans `build.conf`, ou passées en arguments (qui remplacent
+cette liste), sont ensuite mergées dans l'ordre, en `--no-ff`, par SHA résolu au démarrage.
+
+### Configuration : build.conf
+
+`build.conf` à la racine du worktree principal (ignoré par git, modèle
+`tools/build.conf.example`, autre chemin via `--config FILE` ou `SR_BUILD_CONF`) :
+
+```bash
+MERGE_BRANCHES=(          # mergées dans cet ordre ; commenter une ligne pour l'exclure
+  build-automation
+  feature/mode-sequenceur
+  ota-improve
+)
+RELEASE_SUFFIX=custom     # tags v<version>-custom.N (--release)
+```
+
+`build.conf` et `flash.conf` sont en syntaxe bash et sourcés par les scripts : n'y mettre
+que ces affectations.
 
 ```bash
 tools/merge-and-build.sh --list-branches              # branches locales, sélectionnées ou non
@@ -133,8 +150,7 @@ sur origin, outillage sans modification non commitée, tests natifs exécutés (
 message contient la composition et le SHA-256 du firmware. Le tag remplace
 `refs/builds/<label>` comme `build_ref` du manifeste. Rien n'est poussé automatiquement.
 
-`<suffix>` vient de `RELEASE_SUFFIX` dans `build.conf` (racine du worktree principal, modèle
-`tools/build.conf.example`, autre chemin via `SR_BUILD_CONF`), `custom` par défaut. Il
+`<suffix>` vient de `RELEASE_SUFFIX` dans `build.conf`, `custom` par défaut. Il
 distingue ces releases de celles du mainteneur (`v17.26`).
 
 ### Depuis une branche qui n'hérite pas de build-automation
@@ -234,8 +250,7 @@ avant l'envoi.
 **Configuration** : `flash.conf` à la racine du worktree principal (ignoré par git, modèle
 `tools/flash.conf.example`, autre chemin via `SR_FLASH_CONF`) fournit les cibles par défaut :
 `OTA_HOST=192.168.1.50` (ou une URL), optionnels `OTA_COOKIE`, `OTA_COOKIE_DOMAIN` et
-`SERIAL_PORT=/dev/cu.usbserial-0001`. Le fichier
-est lu (pas sourcé) ; une cible passée en argument est prioritaire.
+`SERIAL_PORT=/dev/cu.usbserial-0001`. Une cible passée en argument est prioritaire.
 
 **Historique** : chaque déploiement réel (hors `--dry-run`, et seulement une fois confirmé)
 écrit la sortie complète dans `<release>/flash-<date>-<mode>-<cible>.log` et ajoute une ligne

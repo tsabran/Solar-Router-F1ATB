@@ -1,5 +1,5 @@
 # Copy to flash.conf in the main worktree (not versioned) and adapt.
-# Read by tools/flash.sh as KEY=value lines (never sourced, no shell expansion).
+# Bash syntax, sourced by tools/flash.sh: keep only these variable assignments.
 # Command-line arguments take precedence. Another path can be given with SR_FLASH_CONF.
 
 # OTA_HOST: default target of `tools/flash.sh --ota` (overridden by --ota HOST|URL).
