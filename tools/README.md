@@ -9,18 +9,19 @@ du sketch (elles fonctionnent aussi depuis n'importe quel répertoire du dépôt
 
 | Fichier | Rôle |
 |---------|------|
-| `tools/merge-and-build.sh` | Clone temporaire, merges, compilation, archivage, `refs/builds/<tag>` |
+| `tools/merge-and-build.sh` | Clone temporaire, merges, compilation, archivage, `refs/builds/<label>`, tags de release |
 | `tools/build-binary.sh` | Compilation d'un répertoire de sources et archivage dans `releases/` |
 | `tools/flash.sh` | Flash série (esptool) ou OTA web (`/update`) d'une release archivée |
 | `tools/merge-branches.conf.example` | Modèle de la liste ordonnée des branches à merger |
 | `tools/flash.conf.example` | Modèle de configuration locale de `flash.sh` |
+| `tools/build.conf.example` | Modèle de configuration locale de `merge-and-build.sh` (`RELEASE_SUFFIX`) |
 | `tools/lib/` | Fonctions communes (`build-lib.sh`), génération du manifeste (`write-manifest.py`) |
 | `sketch.yaml` | Profil arduino-cli : plateforme et bibliothèques figées (reste à la racine du sketch) |
 | `partitions.csv` | Table de partitions (« Partition Scheme → Custom » dans l'IDE) |
 
 Fichiers locaux, non versionnés, à la racine du worktree principal : `releases/` (binaires,
-manifestes, logs, `DEPLOYMENTS.log`), `merge-branches.conf` (branches à merger), `flash.conf`
-(cibles de flash) et `.tmp-build/` (répertoire de travail temporaire).
+manifestes, logs, `DEPLOYMENTS.log`), `merge-branches.conf` (branches à merger), `build.conf`
+(suffixe des releases), `flash.conf` (cibles de flash) et `.tmp-build/` (répertoire de travail temporaire).
 
 ## Installation de la toolchain
 
@@ -57,22 +58,43 @@ Mise à jour des versions : modifier `sketch.yaml` (et la liste ci-dessus) dans 
 
 ```bash
 tools/build-binary.sh                       # sources du répertoire courant, profil esp32
-BUILD_TAG=test tools/build-binary.sh        # tag affiché dans la version
+BUILD_TAG=test tools/build-binary.sh        # label affiché dans la version, utilisé tel quel
 tools/build-binary.sh --no-profile          # core/bibliothèques globaux et $FQBN
 ```
 
 FQBN : `esp32:esp32:esp32:PartitionScheme=custom`. Le script vérifie que le binaire tient
 dans la partition app de `partitions.csv` (1900K) et avertit au-delà de 95 %.
 
-La version du firmware devient `17.25 (<BUILD_TAG> <sha>)`, par exemple
-`17.25 (localdev-20261012-163206 ee095c0)`. Le SHA est suffixé par `-dirty` si des
+La version du firmware devient `<version> (<label> <sha>)`, par exemple
+`17.26 (main+3-20261013T1030 1aeb5a50)`. Le SHA est suffixé par `-dirty` si des
 modifications locales ont été incluses. Elle apparaît au boot sur le port série, en Telnet,
 dans l'interface web et dans le message MQTT `sw`.
 
+## Labels de build
+
+Le label (`BUILD_TAG`) nomme la release et apparaît dans la version du firmware. Il décrit
+le contenu du build :
+
+```
+<base>[+N][-wip]-<AAAAMMJJ>T<HHMM>      ex. main+3-20261013T1030, enphase-envoy-fix+2-wip-20261013T1102
+<RELEASE_SUFFIX>.<N>                    release taguée (--release), ex. custom.4
+```
+
+- `base` : branche du répertoire de travail (localdev, ou SHA court si HEAD détaché), `main`
+  (localrelease) ou la ref passée à `--base` ; `/` devient `-`, 24 caractères au plus.
+- `+N` : nombre de branches effectivement mergées (absent si aucune).
+- `-wip` : des modifications non commitées sont incluses (`worktree.patch`). Un build `-wip`
+  n'est reconstructible que grâce à sa ref `refs/builds/<label>` ; `flash.sh` demande une
+  confirmation explicite avant de le déployer, même avec `--yes`.
+- `T` sépare la date et l'heure (ISO 8601, heure locale).
+
+`build-binary.sh` seul utilise `<branche>[-wip]-<date>T<heure>` ; un `BUILD_TAG` fourni est
+pris tel quel.
+
 ## Assembler des branches : merge-and-build.sh
 
-Le script travaille dans un clone local temporaire (`.tmp-build/merge-<tag>/clone`) : il ne
-modifie ni les branches ni le working tree.
+Le script travaille dans un clone local temporaire (`.tmp-build/merge-<mode>-<horodatage>/clone`) :
+il ne modifie ni les branches ni le working tree.
 
 | Base | Option | Contenu |
 |------|--------|---------|
@@ -96,6 +118,25 @@ En cas de conflit, le script liste les fichiers en conflit, annule le merge et s
 (`--dry-run` continue pour signaler tous les conflits). Résoudre le conflit sur la branche
 source, ou retirer la branche de la liste, puis relancer.
 
+### Releases taguées : --release
+
+```bash
+tools/merge-and-build.sh --release --base main          # -> tag v17.26-custom.1
+git push origin v17.26-custom.1                         # publication, à faire soi-même
+```
+
+Une release n'est construite que si elle est reproductible par n'importe qui depuis
+origin : une seule base, aucune modification locale, base et branches mergées déjà présentes
+sur origin, outillage sans modification non commitée, tests natifs exécutés (`--no-test` et
+`--no-ref` refusés). Après un build réussi, le commit compilé reçoit un tag annoté local
+`v<version>-<suffix>.<N>` (N = plus grand numéro existant + 1 pour cette version) dont le
+message contient la composition et le SHA-256 du firmware. Le tag remplace
+`refs/builds/<label>` comme `build_ref` du manifeste. Rien n'est poussé automatiquement.
+
+`<suffix>` vient de `RELEASE_SUFFIX` dans `build.conf` (racine du worktree principal, modèle
+`tools/build.conf.example`, autre chemin via `SR_BUILD_CONF`), `custom` par défaut. Il
+distingue ces releases de celles du mainteneur (`v17.26`).
+
 ### Depuis une branche qui n'hérite pas de build-automation
 
 L'outillage est pris dans le répertoire du script, les sources dans le répertoire courant
@@ -103,7 +144,7 @@ L'outillage est pris dans le répertoire du script, les sources dans le réperto
 worktree :
 
 ```bash
-alias srbuild="$HOME/dev/private/Solar-Router-F1ATB.worktrees/esp32-solar-router-build-automation/merge-and-build.sh"
+alias srbuild="$HOME/dev/private/Solar-Router-F1ATB.worktrees/esp32-solar-router-build-automation/tools/merge-and-build.sh"
 cd ../enphase-envoy-fix
 srbuild build-automation feature/mode-sequenceur ota-improve
 ```
@@ -124,9 +165,9 @@ logs en cours) vont dans `.tmp-build/` et sont supprimés en fin de run ; après
 la sortie console contient tout le diagnostic.
 
 ```
-releases/Solar_Router_V17_25_localdev-20261012-163206/
-  Solar_Router_V17_25_localdev-20261012-163206.ino.bin      # firmware (OTA / flash)
-  Solar_Router_V17_25_localdev-20261012-163206.ino.elf.gz   # symboles, pour décoder un crash
+releases/Solar_Router_V17_26_main+3-20261013T1030/
+  Solar_Router_V17_26_main+3-20261013T1030.ino.bin      # firmware (OTA / flash)
+  Solar_Router_V17_26_main+3-20261013T1030.ino.elf.gz   # symboles, pour décoder un crash
   manifest.txt          # date, tag, base, merges, toolchain, bibliothèques, SHA-256
   worktree.patch        # modifications locales incluses (localdev)
   build.log             # sortie arduino-cli
@@ -140,14 +181,21 @@ Le manifeste contient la date, `BUILD_TAG`, le SHA de la base, la liste ordonné
 branches mergées avec leurs SHA, le résumé du patch, les versions d'arduino-cli, de la
 plateforme et des bibliothèques, le FQBN, le profil, les tailles et le SHA-256 des fichiers.
 
-L'arbre exact compilé est conservé dans le dépôt sous `refs/builds/<tag>` :
+L'arbre exact compilé est conservé dans le dépôt sous `refs/builds/<label>` (ou le tag pour
+`--release`), créée avant la compilation ; `--no-ref` la désactive (déconseillé, surtout avec
+`-wip`) :
 
 ```bash
 git for-each-ref refs/builds
-git log --oneline --graph refs/builds/localdev-20261012-163206
-git switch --detach refs/builds/localdev-20261012-163206
-git update-ref -d refs/builds/<tag>                     # supprimer une ref de build
+git log --oneline --graph refs/builds/main+3-20261013T1030
+git switch --detach refs/builds/main+3-20261013T1030
+git update-ref -d refs/builds/<label>                   # supprimer une ref de build
 ```
+
+Ces refs sont locales. Pour qu'un firmware déployé reste reconstructible ailleurs,
+`flash.sh` propose, après un déploiement réussi, de pousser sa ref vers origin si elle n'y
+est pas (question séparée de `--yes` ; `--push-ref` pour pousser sans demander ; en non
+interactif, la commande `git push origin <ref>` est affichée).
 
 ### Date « Software Info »
 
@@ -161,12 +209,14 @@ utilise un `--build-path` neuf à chaque build, la date est donc juste, mais c'e
 ## Déployer : flash.sh
 
 Sans argument de release, la plus récente de `releases/` est utilisée. Le SHA-256 est vérifié
-contre `SHA256SUMS` et une confirmation est demandée (`--yes` pour l'omettre).
+contre `SHA256SUMS` et une confirmation est demandée (`--yes` pour l'omettre ; un build
+`-wip` demande une confirmation de plus, que seul `SR_ALLOW_WIP=1` permet d'omettre). Après
+un déploiement réussi, la ref de build est proposée au push (voir Traçabilité).
 
 ```bash
 tools/flash.sh --serial --dry-run                    # affiche la commande esptool
 tools/flash.sh --serial /dev/cu.usbserial-0001       # flash USB
-tools/flash.sh --ota 192.168.1.50 Solar_Router_V17_25_localdev-20261012-163206
+tools/flash.sh --ota 192.168.1.50 Solar_Router_V17_26_main+3-20261013T1030
 tools/flash.sh --ota                                 # cible = OTA_HOST de flash.conf
 tools/flash.sh --ota https://router.example.org --cookie auth_token=PROXY_COOKIE \
                --cookie-domain example.org           # à distance, derrière un reverse proxy
@@ -204,4 +254,4 @@ column -ts$'\t' releases/DEPLOYMENTS.log        # quel firmware tourne où, depu
   de partitions Custom (tout routeur en version ≥ 14.02) ; pour une carte vierge, faire un
   premier téléversement depuis l'IDE Arduino (Partition Scheme → Custom).
 - **OTA** : envoie l'app sur `<cible>/update` (page « Mise à jour » du routeur), attend
-  le redémarrage puis vérifie que `/ParaFixe` renvoie une version contenant le `BUILD_TAG`.
+  le redémarrage puis vérifie que `/ParaFixe` renvoie une version contenant `(<BUILD_TAG> `.
