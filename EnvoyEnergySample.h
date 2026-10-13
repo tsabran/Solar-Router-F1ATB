@@ -38,8 +38,9 @@ inline bool ParseEnvoyPhasePower(const char* json, double& powerW) {
   return std::isfinite(powerW);
 }
 
-inline bool EnvoyReadingHeaderJson(const char* header, char* json, size_t capacity) {
-  const char* start = std::strchr(header, '{');
+// Délimite l'objet compteur jusqu'avant "channels" (dont le tableau suit le '[' consommé).
+inline bool EnvoyReadingHeaderBounds(const char* header, const char*& start, size_t& length) {
+  start = std::strchr(header, '{');
   const char* channels = std::strstr(header, "\"channels\"");
   if (!start || !channels || channels <= start) return false;
   const char* suffix = channels + std::strlen("\"channels\"");
@@ -47,12 +48,18 @@ inline bool EnvoyReadingHeaderJson(const char* header, char* json, size_t capaci
   if (*suffix++ != ':') return false;
   while (*suffix && std::isspace(static_cast<unsigned char>(*suffix))) ++suffix;
   if (*suffix && *suffix != '[') return false;
-  size_t length = static_cast<size_t>(channels - start);
+  length = static_cast<size_t>(channels - start);
   while (length && (start[length - 1] == ' ' || start[length - 1] == '\r' ||
                     start[length - 1] == '\n' || start[length - 1] == '\t'))
     --length;
   if (length && start[length - 1] == ',') --length;
-  if (length + 2 > capacity) return false;
+  return true;
+}
+
+inline bool EnvoyReadingHeaderJson(const char* header, char* json, size_t capacity) {
+  const char* start;
+  size_t length;
+  if (!EnvoyReadingHeaderBounds(header, start, length) || length + 2 > capacity) return false;
   std::memcpy(json, start, length);
   json[length] = '}';
   json[length + 1] = '\0';

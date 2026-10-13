@@ -457,6 +457,17 @@ TEST_CASE(EnvoyFirmware, ValidTokenIsNotRenewedPeriodically) {
     ASSERT_EQ(std::string(80, 'T'), std::string(TokenEnphase.c_str()));
 }
 
+TEST_CASE(EnvoyFirmware, HeaderValidationLeavesPayloadIntact) {
+    char payload[] = "]},{\"eid\":1,\"voltage\":230.0,\"activePower\":-1800,\n  \"channels\": ";
+    const std::string before(payload);
+    ASSERT_TRUE(EnvoyPayloadValide(payload, true, true, false));
+    ASSERT_EQ(before, std::string(payload));
+    char invalid[] = "{\"voltage\":\"x\",\"channels\":";
+    const std::string invalidBefore(invalid);
+    ASSERT_FALSE(EnvoyPayloadValide(invalid, true, false, false));
+    ASSERT_EQ(invalidBefore, std::string(invalid));
+}
+
 TEST_CASE(EnvoyFirmware, CloudTimeoutHTTPErrorAndConnectFailureAreBounded) {
     for (int failure = 0; failure < 4; ++failure) {
         reset();

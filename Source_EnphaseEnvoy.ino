@@ -399,17 +399,27 @@ bool EnvoyPayloadPrefixValide(const char* payload, const char* prefix) {
   return *payload == '{' && !*prefix;
 }
 
-bool EnvoyPayloadValide(const char* payload, bool header, bool power, bool grid) {
-  static char headerJson[1024];
-  if (header) {
-    if (!EnvoyReadingHeaderJson(payload, headerJson, sizeof(headerJson))) return false;
-    payload = headerJson;
-  } else {
-    payload = strchr(payload, '{');
-    if (!payload) return false;
-  }
+bool EnvoyPayloadValide(char* payload, bool header, bool power, bool grid) {
   JsonDocument document;
-  if (deserializeJson(document, payload) || !document.is<JsonObject>()) return false;
+  DeserializationError error;
+  if (header) {
+    // Objet fermé en place juste avant "channels" puis restauré : pas de copie du bloc.
+    const char* start;
+    size_t length;
+    if (!EnvoyReadingHeaderBounds(payload, start, length)) return false;
+    char* end = payload + (start - payload) + length;
+    const char saved[2] = {end[0], end[1]};
+    end[0] = '}';
+    end[1] = '\0';
+    error = deserializeJson(document, start);
+    end[0] = saved[0];
+    end[1] = saved[1];
+  } else {
+    const char* object = strchr(payload, '{');
+    if (!object) return false;
+    error = deserializeJson(document, object);
+  }
+  if (error || !document.is<JsonObject>()) return false;
   const char* fields[] = {"activePower", "apparentPower", "voltage", "current",
                           "freq", "actEnergyDlvd", "actEnergyRcvd"};
   for (const char* field : fields) {
@@ -539,7 +549,7 @@ void LectureEnphase()
       bool bUseCookie = (EnvoySessionIdCookie != "");
       // Requete construite dans un buffer statique pour eviter les concat String sur le heap
       {
-        static char s_reqLine[1024];
+        static char s_reqLine[768];  // ~130 octets + token (~400-500) ; repli String au-delà
         int n;
         if (bUseCookie) {
           n = snprintf(s_reqLine, sizeof(s_reqLine), "GET %sCookie: sessionId=%s\r\n\r\n",
@@ -628,7 +638,8 @@ void LectureEnphase()
 
     //TelnetPrintln("Waiting JSON data ...");
 
-    static char jsonPayload[1024]; // 'static' pour en faire une variable globale et eviter de saturer la pile
+    // Plus gros bloc lu (en-tête compteur ou phase) : 643 octets sur la réponse réelle à 8 compteurs.
+    static char jsonPayload[800]; // 'static' pour en faire une variable globale et eviter de saturer la pile
     size_t jsonPayloadLength = 0;
 
     // Saute L'entete d'ouverture de la trame JSON.
