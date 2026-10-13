@@ -316,6 +316,8 @@ flash_ota() {
   case "$rc" in 6|7) die "Cannot reach $BASE_URL/update (curl exit $rc)" ;; esac
   case "$code" in
     3??|401|403) die "Upload refused$(auth_hint "$code")" ;;
+    # Gateway errors come from a reverse proxy that could not reach the router: not flashed.
+    502|503|504) die "Upload not delivered (HTTP $code from the proxy): the router kept its firmware, retry" ;;
   esac
   # Otherwise the router may reboot before the response is complete: rely on the version check.
   log INFO "Response:  ${resp:-(none)} (HTTP ${code:-000}, curl exit $rc)"
