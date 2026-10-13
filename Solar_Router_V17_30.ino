@@ -1482,7 +1482,7 @@ void Task_LectureRMS(void *pvParameters) {
       if (Source == "Enphase") {
         LectureEnphase();
         LastRMS_Millis = millis();
-        PeriodeProgMillis = 300 + ralenti;  //On s'adapte à la vitesse réponse Envoy-S metered
+        PeriodeProgMillis = 300;  // ~300 ms entre deux lectures (≈165 ms) : période ≈ 500 ms, sans ralenti au soutirage
       }
 
       if (Source == "SmartG") {
