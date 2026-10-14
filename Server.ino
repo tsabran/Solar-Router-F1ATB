@@ -34,6 +34,7 @@ void Init_Server() {
   server.on("/ajax_histo1an", handleAjaxHisto1an);
   server.on("/ajax_dataRMS", handleAjaxRMS);
   server.on("/ajax_dataESP32", handleAjaxESP32);
+  server.on("/ajax_diag", handleAjaxDiag);
   server.on("/ajax_data", handleAjaxData);
   server.on("/ajax_data10mn", handleAjaxData10mn);
   server.on("/ajax_etatActions", handleAjax_etatActions);
@@ -407,6 +408,58 @@ void handleAjaxHisto48h() {  // Envoi Historique de 50h (600points) toutes les 5
 
   HttpLog("histo48h fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.sendContent("");  // terminateur chunked 0\r\n\r\n
+}
+// Échantillonneur du tas : minimum par fenêtre d'une minute (60 dernières minutes) et depuis la dernière lecture
+#define DIAG_WINDOWS 60
+static volatile uint32_t diagMinRing[DIAG_WINDOWS];
+static volatile uint32_t diagLargestRing[DIAG_WINDOWS];
+static volatile uint32_t diagMinSinceRead = 0xFFFFFFFF;
+static volatile uint8_t diagIdx = 0;
+static void Task_DiagHeap(void *) {
+  for (int i = 0; i < DIAG_WINDOWS; i++) diagMinRing[i] = diagLargestRing[i] = 0xFFFFFFFF;
+  uint32_t ticks = 0;
+  for (;;) {
+    uint32_t f = esp_get_free_internal_heap_size();
+    if (f < diagMinRing[diagIdx]) diagMinRing[diagIdx] = f;
+    if (f < diagMinSinceRead) diagMinSinceRead = f;
+    ticks++;
+    if (ticks % 100 == 0) {  // chaque seconde
+      uint32_t l = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+      if (l < diagLargestRing[diagIdx]) diagLargestRing[diagIdx] = l;
+    }
+    if (ticks % 6000 == 0) {  // chaque minute
+      diagIdx = (diagIdx + 1) % DIAG_WINDOWS;
+      diagMinRing[diagIdx] = diagLargestRing[diagIdx] = 0xFFFFFFFF;
+    }
+    vTaskDelay(1);
+  }
+}
+void StartDiagHeap() {
+  xTaskCreatePinnedToCore(Task_DiagHeap, "DiagHeap", 2048, NULL, 1, NULL, 1);
+}
+void handleAjaxDiag() {  // Diagnostic mémoire (octets). minWin = minima par minute, de la plus ancienne à la courante
+  String S;
+  S.reserve(900);
+  char b[160];
+  uint32_t m = diagMinSinceRead;
+  diagMinSinceRead = 0xFFFFFFFF;
+  snprintf(b, sizeof(b), "free=%u min=%u largest=%u minSinceRead=%u stackLoop=%u stackRMS=%u\n",
+           (unsigned)esp_get_free_internal_heap_size(), (unsigned)esp_get_minimum_free_heap_size(),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)m,
+           (unsigned)uxTaskGetStackHighWaterMark(NULL), (unsigned)uxTaskGetStackHighWaterMark(Task1));
+  S = b;
+  S += "minWin=";
+  for (int k = 1; k <= DIAG_WINDOWS; k++) {
+    uint32_t v = diagMinRing[(diagIdx + k) % DIAG_WINDOWS];
+    if (v != 0xFFFFFFFF) { snprintf(b, sizeof(b), "%u,", (unsigned)v); S += b; }
+  }
+  S += "\nlargestWin=";
+  for (int k = 1; k <= DIAG_WINDOWS; k++) {
+    uint32_t v = diagLargestRing[(diagIdx + k) % DIAG_WINDOWS];
+    if (v != 0xFFFFFFFF) { snprintf(b, sizeof(b), "%u,", (unsigned)v); S += b; }
+  }
+  S += "\n";
+  server.send(200, "text/plain", S);
 }
 void handleAjaxESP32() {  // Envoi des dernières infos sur l'ESP32
   [[maybe_unused]] unsigned long _t0 = millis();

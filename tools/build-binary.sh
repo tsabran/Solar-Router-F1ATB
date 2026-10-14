@@ -27,6 +27,9 @@ Options:
   --no-profile     Ignore sketch.yaml and use $FQBN with the globally installed core/libraries
   --no-minify      Keep original resource bodies (URLs are still content-versioned)
   --no-gzip        Keep resource bodies uncompressed (default: precompress at build time)
+  --define NAME[=VALUE]
+                   Add a preprocessor define (repeatable), e.g. --define DIAG_HEAP for a
+                   measurement build or --define HTTP_DEBUG_LOG
   -h, --help       Show this help
 
 Environment variables:
@@ -48,6 +51,7 @@ PROFILE="${SKETCH_PROFILE:-}"
 USE_PROFILE=1
 MAIN_INO=""
 ASSET_ARGS=()
+DEFINES=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --workdir) [[ -n "${2:-}" ]] || die "--workdir requires a path"; WORK_DIR="$2"; shift 2 ;;
@@ -55,6 +59,9 @@ while [[ $# -gt 0 ]]; do
     --no-profile) USE_PROFILE=0; shift ;;
     --no-minify) ASSET_ARGS+=(--no-minify); shift ;;
     --no-gzip) ASSET_ARGS+=(--no-gzip); shift ;;
+    --define)
+      [[ "${2:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*(=[A-Za-z0-9_.-]*)?$ ]] || die "--define requires NAME or NAME=VALUE"
+      DEFINES+=("-D$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
     -*) die "Unknown option: $1 (see --help)" ;;
     *) MAIN_INO="$1"; shift ;;
@@ -245,6 +252,12 @@ sr_arduino_network_timeout
 COMPILE_JSON="$TMP_ROOT/compile.json"
 COMPILE_CMD=(arduino-cli compile "${PROFILE_ARGS[@]}" --build-path "$TMP_ROOT/build-path"
   --output-dir "$TMP_ROOT/out" --json "$STAGE_DIR")
+if [[ "${#DEFINES[@]}" -gt 0 ]]; then
+  # Empty by default on esp32:esp32; the board defines stay in build.extra_flags.
+  COMPILE_CMD+=(--build-property "compiler.cpp.extra_flags=${DEFINES[*]}"
+    --build-property "compiler.c.extra_flags=${DEFINES[*]}")
+  log INFO "Defines:     ${DEFINES[*]}"
+fi
 compile_rc=0
 compile_start="$(date +%s)"
 log START "arduino-cli compile (output shown at the end)"

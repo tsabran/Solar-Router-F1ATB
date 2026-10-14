@@ -63,7 +63,16 @@ BUILD_TAG=test tools/build-binary.sh        # label affiché dans la version, ut
 tools/build-binary.sh --no-profile          # core/bibliothèques globaux et $FQBN
 tools/build-binary.sh --no-gzip             # minification seule, sans compression
 tools/build-binary.sh --no-minify --no-gzip # corps originaux, pour comparaison
+BUILD_TAG=diag tools/build-binary.sh --define DIAG_HEAP  # build de mesure
 ```
+
+`--define NOM[=VALEUR]` (répétable) ajoute un `#define` à toute la compilation :
+
+- `DIAG_HEAP` : échantillonneur du tas et endpoint `/ajax_diag` (minimum du tas
+  depuis la dernière lecture, minima par minute sur 60 min, marges de pile).
+  L'endpoint n'est pas authentifié : réservé aux builds de mesure, ne pas
+  l'activer dans un firmware de production.
+- `HTTP_DEBUG_LOG` : logs heap/durée des handlers web.
 
 ### Ressources web embarquées
 
