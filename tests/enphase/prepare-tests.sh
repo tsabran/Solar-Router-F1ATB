@@ -14,9 +14,9 @@ awk '
   END { if (found != 1 || body) exit 1 }
 ' "$1/Stockage.ino" > "$2/envoy_filter.inc"
 awk '
-  /^void handle(MainJS[123]|Brute|BruteJS[12]|AjaxHisto48h|AjaxData10mn|CommunCSS)\(/ { body = 1; found++ }
+  /^void (handle(Root|MainJS[123]|RuntimeJS|RuntimeCSS|Brute|BruteJS[12]|AjaxHisto48h|AjaxData10mn|CommunCSS)|CacheStaticResource|SendStaticAsset|SendStaticAssetPayload)\(/ { body = 1; found++ }
   body { print; if (/^}$/) body = 0 }
-  END { if (found != 9 || body) exit 1 }
+  END { if (found != 15 || body) exit 1 }
 ' "$1/Server.ino" > "$2/envoy_web.inc"
 awk '
   /^    if \(Source_data == "Enphase"\)/ { body = 1; found++ }

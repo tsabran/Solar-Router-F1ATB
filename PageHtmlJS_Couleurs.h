@@ -8,6 +8,7 @@ const char *CouleursHtml = R"====(
     <meta charset="UTF-8">
     <title>Colors</title>
 
+    <link rel="stylesheet" href="/runtime.css">
     <link rel="stylesheet" href="/commun.css">
 
     <style>

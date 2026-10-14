@@ -4,6 +4,7 @@
 const char *ConnectAP_Html = R"====(
 <!doctype html>
 <html><head><meta charset="UTF-8">    
+    <link rel="stylesheet" href="/runtime.css">
     <link rel="stylesheet" href="/commun.css">
     
     <style>

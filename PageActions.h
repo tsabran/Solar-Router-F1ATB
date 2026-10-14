@@ -11,6 +11,7 @@ const char *ActionsHtml = R"====(
 
     <script src="/PinsActionsJS"></script>
     <script src="/CommunCouleurJS"></script>
+    <link rel="stylesheet" href="/runtime.css">
     <link rel="stylesheet" href="/commun.css">
 
     <style>

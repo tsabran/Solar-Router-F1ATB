@@ -53,6 +53,32 @@ tests/
 Prérequis : Bash et un compilateur C++17 (`clang++` ou `g++`). Les tests
 JavaScript du séquenceur utilisent Node.js et ses modules intégrés, sans npm.
 
+## Ressources web et cache
+
+Installer les dépendances légères de `tools/requirements-assets.txt` dans `.venv`
+(voir `tools/README.md`). Le runner utilise cet interpréteur, sinon `python3`,
+avec surcharge possible par `ASSET_PYTHON`.
+
+```bash
+./tests/run-tests.sh EnvoyWeb      # corps HTTP, extraction dynamique, cache
+./tests/run-tests.sh StaticAssets  # génération dans des répertoires temporaires
+```
+
+Les treize tests Python vérifient la réduction mesurée des ressources, le mode
+désactivé, le hash déterministe et son invalidation, toutes les URLs locales,
+l'ordre des dépendances dynamiques, le balisage HTML inchangé, et les cas JS/CSS
+sensibles (ASI, regex, templates multilignes, chaînes). Tous les scripts préparés
+sont parsés par Node ; les 15 tests UI existants sont aussi rejoués contre les
+ressources minifiées. Le test C++ exerce les vrais handlers et vérifie que seul
+le tag courant autorise `max-age=31536000, immutable`, jamais les corps dynamiques.
+Les estimations de bundles sont vérifiées et leur concaténation est parsée,
+sans présumer de l'équivalence comportementale ni du gain de tas.
+Les 27 gzip générés sont décompressés et comparés octet par octet aux ressources
+versionnées non compressées. Leurs métadonnées sont compilées et exécutées en
+C++ natif. Les options `--no-gzip`/`--no-minify` sont testées via le CLI. Les
+handlers HTTP sont testés sur des octets NUL, `Content-Encoding`, `Vary`, les
+qualités `Accept-Encoding`, les refus 406 et les erreurs de métadonnées 500.
+
 ## Metriques d'energie : calcul, firmware, MQTT et configuration
 
 La branche `agents/energy-metrics-integration-rms` ajoute `tests/metrics/`.

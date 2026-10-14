@@ -8,6 +8,7 @@ void Init_Server() {
   // Init Web Server on port 80
   server.on("/", handleRoot);
   server.on("/MainJS1", handleMainJS1);
+  server.on("/RuntimeJS", handleRuntimeJS);
   server.on("/MainJS2", handleMainJS2);
   server.on("/MainJS3", handleMainJS3);
   server.on("/Para", handlePara);
@@ -56,6 +57,7 @@ void Init_Server() {
   server.on("/CouleursAjax", handleCouleursAjax);
   server.on("/CouleurUpdate", handleCouleurUpdate);
   server.on("/commun.css", handleCommunCSS);
+  server.on("/runtime.css", handleRuntimeCSS);
   server.on("/favicon.ico", handleFavicon);
   server.on("/favicon192.ico", handleFavicon192);
   server.on("/manifest.json", handleManifest);
@@ -148,7 +150,7 @@ void Init_Server() {
     });
 
   // here the list of headers to be recorded
-  const char *headerkeys[] = { "User-Agent", "Cookie" };
+  const char *headerkeys[] = { "User-Agent", "Cookie", "Accept-Encoding" };
   size_t headerkeyssize = sizeof(headerkeys) / sizeof(char *);
   // ask server to track these headers
   server.collectHeaders(headerkeys, headerkeyssize);
@@ -157,40 +159,36 @@ void Init_Server() {
 }
 
 void handleRoot() {  // Pages principales
-
-  server.send_P(200, "text/html", MainHtml);
+  SendStaticAsset("text/html", MainHtml);
 }
 void handleWifi() {
   lectureCookie(ConnectAP_Html);
 }
-void handleMainJS1() {                  // Code Javascript
+void handleRuntimeJS() {
+  server.sendHeader("Cache-Control", "no-store");
   String S = "var biSonde=false;\r\n";  // Pour tracer immediatement tableau Mesures
   if (nomSondeFixe != "" && (Source_data == "UxIx2" || ((Source_data == "ShellyEm" || Source_data == "ShellyPro") && EnphaseSerial.toInt() != 3))) {
     S = "var biSonde=true;\r\n";
   }
-  server.setContentLength(S.length() + strlen(MainJS1)); // on evite de pré-concaténer S + MainJS1 pour ne pas saturer la RAM
   server.send(200, "text/javascript", S);
-  server.sendContent(MainJS1, strlen(MainJS1)); // sendContent : streame sans alloc heap
+}
+void handleMainJS1() {
+  SendStaticAsset("text/javascript", MainJS1);
 }
 void handleMainJS2() {  // Code Javascript
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", MainJS2);  // Javascript code
+  SendStaticAsset("text/javascript", MainJS2);
 }
 void handleMainJS3() {  // Code Javascript
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", MainJS3);  // Javascript code
+  SendStaticAsset("text/javascript", MainJS3);
 }
 void handleBrute() {  // Page données brutes
-  CacheEtClose(300);
-  server.send_P(200, "text/html", PageBrute);
+  SendStaticAsset("text/html", PageBrute);
 }
 void handleBruteJS1() {  // Code Javascript
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", PageBruteJS1);  // Javascript code
+  SendStaticAsset("text/javascript", PageBruteJS1);
 }
 void handleBruteJS2() {  // Code Javascript
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", PageBruteJS2);  // Javascript code
+  SendStaticAsset("text/javascript", PageBruteJS2);
 }
 void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
   [[maybe_unused]] unsigned long _t0 = millis();
@@ -673,25 +671,22 @@ void handleActions() {
   lectureCookie(ActionsHtml);
 }
 void handleActionsJS1() {
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", ActionsJS1);
+  SendStaticAsset("text/javascript", ActionsJS1);
 }
 void handleActionsJS2() {
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", ActionsJS2);
+  SendStaticAsset("text/javascript", ActionsJS2);
 }
 void handleActionsJS3() {
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", ActionsJS3);
+  SendStaticAsset("text/javascript", ActionsJS3);
 }
 void handleActionsJS4() {
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", ActionsJS4);
+  SendStaticAsset("text/javascript", ActionsJS4);
 }
 
 
 
 void handlePinsActionsJS() {  // Pins disponibles
+  server.sendHeader("Cache-Control", "no-store");
   String S = "var Pins=[0,-1];";
   if (ESP32_Type == 1)
     S = "var Pins=[0,4,5,13,14,16,17,21,22,23,25,26,27,-1];";
@@ -774,16 +769,13 @@ void handleCleUpdate() {
   server.send(200, "text/plain", "OKcle");
 }
 void handleParaJS1() {
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", ParaJS1);
+  SendStaticAsset("text/javascript", ParaJS1);
 }
 void handleParaJS2() {
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", ParaJS2);
+  SendStaticAsset("text/javascript", ParaJS2);
 }
 void handleParaCommunJS() {
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", ParaCommunJS);
+  SendStaticAsset("text/javascript", ParaCommunJS);
 }
 void handleParaFixe() {  //Paramètres stockés en fichier
   File file = LittleFS.open("/parametres.json", "r");
@@ -1021,8 +1013,7 @@ void handleCouleurs() {
   lectureCookie(CouleursHtml);
 }
 void handleCommunCouleurJS() {  // Code Javascript
-  CacheEtClose(300);
-  server.send_P(200, "text/javascript", CommunCouleurJS);  // Javascript code
+  SendStaticAsset("text/javascript", CommunCouleurJS);
 }
 void handleCouleursAjax() {
 
@@ -1037,7 +1028,10 @@ void handleCouleurUpdate() {
   if ((ESP32_Type >= 4 && ESP32_Type <= 9)||ESP32_Type==101) SetCouleurs();
 }
 void handleCommunCSS() {
-  CacheEtClose(60);
+  SendStaticAsset("text/css", CommunCSS);
+}
+void handleRuntimeCSS() {
+  server.sendHeader("Cache-Control", "no-store");
   String S = "* {box-sizing: border-box;}\n";
   S += "body {font-size:150%;text-align:center;width:100%;max-width:1000px;margin:auto;padding:10px;background:linear-gradient(";
   if (Couleurs == "") {
@@ -1052,19 +1046,17 @@ void handleCommunCSS() {
     S += "#" + Couleurs.substring(0, 6);
   }
   S += ";}\n";
-  server.setContentLength(S.length() + strlen(CommunCSS));  // évite de copier CommunCSS dans un String
   server.send(200, "text/css", S);
-  server.sendContent(CommunCSS, strlen(CommunCSS));
 }
 
 void handleFavicon() {
-  server.send_P(200, "image/svg+xml", Favicon);
+  SendStaticAsset("image/svg+xml", Favicon);
 }
 void handleFavicon192() {
-  server.send_P(200, "image/svg+xml", Favicon192);
+  SendStaticAsset("image/svg+xml", Favicon192);
 }
 void handleManifest() {
-  server.send_P(200, "application/json", Manifest);
+  SendStaticAsset("application/json", Manifest);
 }
 void handleNotFound() {  // Page Web pas trouvé
   String message = "Fichier non trouvé\n\n";
@@ -1082,17 +1074,42 @@ void handleNotFound() {  // Page Web pas trouvé
   server.send(404, "text/plain", message);
 }
 
-void CacheEtClose(int16_t seconde) {
-  server.sendHeader("Cache-Control", "max-age=" + String(seconde));
+void CacheStaticResource() {
+  server.sendHeader("Cache-Control", StaticAssetCacheControl(server.arg("v").c_str()));
+}
+void SendStaticAssetPayload(const char *mime, const char *data, const StaticAssetPayload &payload) {
+  if (payload.gzip) {
+    server.sendHeader("Vary", "Accept-Encoding");
+    if (server.hasHeader("Accept-Encoding") &&
+        !StaticAssets::AcceptsGzip(server.header("Accept-Encoding").c_str())) {
+      server.sendHeader("Cache-Control", "no-store");
+      TelnetPrintln("HTTP 406: gzip not accepted for " + server.uri());
+      server.send(406, "text/plain", "The embedded gzip representation is not acceptable for this request.");
+      return;
+    }
+    server.sendHeader("Content-Encoding", "gzip");
+  }
+  if (std::strcmp(mime, "text/html") == 0) server.sendHeader("Cache-Control", "no-store");
+  else CacheStaticResource();
+  server.send_P(200, mime, data, payload.length);
+}
+void SendStaticAsset(const char *mime, const char *data) {
+  StaticAssetPayload payload;
+  if (!GetStaticAssetPayload(data, payload)) {
+    server.sendHeader("Cache-Control", "no-store");
+    TelnetPrintln("HTTP 500: missing embedded asset metadata for " + server.uri());
+    server.send(500, "text/plain", "Missing embedded asset metadata.");
+    return;
+  }
+  SendStaticAssetPayload(mime, data, payload);
 }
 void lectureCookie(const char* S) {
   ExtraitCookie();
   if (S != nullptr && S[0] != '\0') {
-
     if (CleAccesRef == CleAcces) {
-      server.send_P(200, "text/html", S);
+      SendStaticAsset("text/html", S);
     } else {
-      server.send_P(200, "text/html", ParaCleHtml);  // Demande clé d'acces / mot de passe
+      SendStaticAsset("text/html", ParaCleHtml);  // Demande clé d'acces / mot de passe
     }
   }
 }

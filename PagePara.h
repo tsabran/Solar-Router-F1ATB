@@ -6,6 +6,7 @@ const char *ParaHtml = R"====(
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
+  <link rel="stylesheet" href="/runtime.css">
   <link rel="stylesheet" href="commun.css">
   <script src="/CommunCouleurJS"></script>
 

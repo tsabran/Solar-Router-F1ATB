@@ -8,6 +8,7 @@ const char *MainHtml = R"====(
 <head>
   <meta charset="UTF-8">
 
+  <link rel="stylesheet" href="/runtime.css">
   <link rel="stylesheet" href="/commun.css">
   <title>RMS F1ATB</title>
 
@@ -312,6 +313,7 @@ const char *MainHtml = R"====(
 
   <!-- Scripts -->
   <script src="/ParaCommunJS"></script>
+  <script src="/RuntimeJS"></script>
   <script src="MainJS1"></script>
   <script src="MainJS2"></script>
   <script src="MainJS3"></script>

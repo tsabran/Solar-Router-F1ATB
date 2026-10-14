@@ -61,7 +61,256 @@ Mise à jour des versions : modifier `sketch.yaml` (et la liste ci-dessus) dans 
 tools/build-binary.sh                       # sources du répertoire courant, profil esp32
 BUILD_TAG=test tools/build-binary.sh        # label affiché dans la version, utilisé tel quel
 tools/build-binary.sh --no-profile          # core/bibliothèques globaux et $FQBN
+tools/build-binary.sh --no-gzip             # minification seule, sans compression
+tools/build-binary.sh --no-minify --no-gzip # corps originaux, pour comparaison
 ```
+
+### Ressources web embarquées
+
+Installer une fois les deux petits minifieurs Python (pas de Node/npm au build) :
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r tools/requirements-assets.txt
+# Facultatif : relire .envrc, puis direnv allow pour les shells interactifs.
+```
+
+`build-binary.sh` utilise la `.venv` du checkout de l'outillage, sinon `python3`.
+`ASSET_PYTHON=/chemin/python` permet de choisir explicitement l'interpréteur.
+Aucune installation automatique ; une dépendance manquante arrête le build.
+
+`prepare-assets.py` transforme seulement la copie de staging, jamais les sources :
+
+- minification JS/CSS par `rjsmin`/`rcssmin` aux versions figées ; pas de renommage
+  ni d'optimisation des expressions ;
+- dans le HTML, seuls les blocs `<script>`/`<style>` sont minifiés. Les espaces
+  du balisage, les attributs, les textes et l'ordre des scripts restent inchangés ;
+- suffixe `?v=<SHA256 tronqué à 20 caractères>` pour les URLs JS/CSS/icônes/manifest
+  locales, y compris les icônes dans le manifest. Le hash couvre toutes les
+  ressources préparées avant l'ajout des suffixes et le mode gzip/non-gzip,
+  indépendamment de `BUILD_TAG` ;
+- `Cache-Control: public, max-age=31536000, immutable` uniquement si `v` correspond
+  au contenu du firmware courant. URL sans version ou ancienne : `no-store` ;
+- HTML, `/RuntimeJS` (`biSonde`), `/runtime.css` (couleurs), `/PinsActionsJS` :
+  `no-store`. Le CSS dynamique précède le CSS statique sur toutes les pages ;
+  le JS dynamique précède `MainJS1` sur l'accueil ;
+- gzip des 27 ressources HTTP embarquées, par défaut, après insertion des URLs
+  versionnées. Seul le gzip est stocké en flash, sans doublon brut. Le tableau
+  de couleurs par défaut, utilisé par le firmware, n'est pas compressé ;
+- `--no-gzip` désactive la compression ; `--no-minify` désactive indépendamment
+  la minification. Les deux conservent le versionnement/cache et l'extraction
+  des valeurs dynamiques.
+
+Sans ce build (IDE Arduino), le tag vide désactive le cache immutable. L'IDE
+compile directement les sources lisibles, sans dépendance Python.
+Les anciennes branches sans `StaticAssetCache.h` restent compilables sans génération.
+
+Chaque release générée archive `assets.json` dans les checksums : `original` et
+`prepared` sont les tailles UTF-8 avant suffixes ; `versioned` inclut les suffixes ;
+`stored` est la longueur réellement servie, gzip ou non, selon `encoding`.
+`gzip` est la taille compressée du corps versionné (une estimation seulement si
+`encoding` vaut `identity`). Le `.bin` fait foi pour la flash réellement utilisée :
+ces tailles excluent le terminateur C, l'alignement, le code et les endpoints dynamiques.
+
+#### Résultat de compilation initial (14 octobre 2026)
+
+Sur cette branche, profil ESP32 3.3.7 identique, après extraction des valeurs dynamiques :
+
+| Variante | Binaire app | Libre sur partition app (1 945 600 o) |
+|----------|------------:|-------------------------------------:|
+| Sans minification (`assets-raw-20261014a`) | 1 921 472 o | 24 128 o |
+| Minifiée (`assets-min-20261014a`) | 1 848 608 o | 96 992 o |
+
+Gain mesuré sur le binaire : **72 864 o (71,16 Kio)**. RAM globale statique
+identique : 93 736 o. Ce n'est **pas** une mesure du creux de tas en service.
+Les corps embarqués passent de 242 859 à 169 998 o avant suffixes de version.
+
+Avec le serveur gzip et ses métadonnées, les deux builds comparatifs suivants
+utilisent les mêmes sources et le même profil :
+
+| Variante | Binaire app | Libre sur partition app |
+|----------|------------:|------------------------:|
+| Minifiée, `--no-gzip` (`assets-plain-20261014b`) | 1 851 056 o | 94 544 o |
+| Minifiée + gzip, défaut (`assets-gzip-20261014b`) | 1 734 256 o | 211 344 o |
+
+Gain gzip isolé : **116 800 o (114,06 Kio)**. Le gain total par rapport au premier
+build sans minification est de **187 216 o (182,83 Kio)**, incluant l'évolution du
+code serveur. RAM globale statique toujours identique : 93 736 o. Aucun de ces
+chiffres ne mesure le tas en service.
+
+Le build final déployé `assets-gzip-20261014c`, après centralisation du cache
+pour éviter deux en-têtes contradictoires sur les erreurs 406, fait **1 733 824 o**.
+Il laisse **211 776 o** dans la partition app ; gain total face au premier build
+non minifié : **187 648 o (183,25 Kio)**. Son tag de ressources reste identique à
+celui du build précédent, car les corps servis sont inchangés.
+
+| Ressource | Original | Minifié | gzip du minifié (estimation) |
+|-----------|---------:|--------:|----------------------------:|
+| MainJS1 | 12 211 o | 5 997 o | 2 010 o |
+| MainJS2 | 18 126 o | 13 367 o | 3 622 o |
+| MainJS3 | 15 317 o | 11 147 o | 3 106 o |
+| ParaCommunJS | 5 308 o | 3 654 o | 1 527 o |
+| CommunCSS | 1 548 o | 1 476 o | 608 o |
+
+#### gzip : activé par défaut au build
+
+La compression **au build**, puis l'envoi des octets compressés avec leur longueur
+binaire explicite et `Content-Encoding: gzip`, est viable : les navigateurs modernes
+décompressent nativement, sans compression ni décompression sur l'ESP32. Le CPU du
+routeur transfère seulement moins d'octets. `GeneratedStaticAssets.h`, produit
+uniquement en staging, fournit les longueurs et encodages ; `SendStaticAsset`
+n'utilise pas `strlen` sur les gzip (octets NUL). Métadonnée absente : erreur
+HTTP 500 journalisée, jamais un envoi tronqué.
+
+Le serveur collecte `Accept-Encoding` et envoie `Vary: Accept-Encoding`. Il accepte
+`gzip` ou `*` de qualité positive, sans distinction de casse ; un `gzip;q=0`
+explicite prend priorité sur `*`. Un champ vide ou ne permettant pas gzip produit
+une erreur HTTP 406 journalisée et `no-store`, sans `Content-Encoding`.
+L'absence du champ permet gzip conformément à HTTP. Les clients sans décompression
+automatique doivent donc annoncer `identity`, ou utiliser par exemple `curl --compressed`.
+Il n'y a pas de variante brute de secours afin de préserver le gain flash.
+
+Les corps stockés après minification, versionnement et gzip totalisent 53 936 o
+(y compris 180 o de couleurs par défaut non compressées). Les corps dynamiques
+restent non compressés et non cachés ; on ne peut pas préfixer un gzip avec du
+JS/CSS non compressé. Les sources IDE restent lisibles et non compressées.
+
+Le cache chaud évitera les gros transferts ; le test `cache:'no-store'` mesure
+au contraire le chargement à froid. `send_P`/`write_P` ne copient pas nécessairement
+toute la ressource sur le tas ESP32 : la réduction des buffers TCP et donc du
+creux n'est **pas garantie** par la seule réduction de taille.
+
+#### Mesure sur le routeur de production
+
+Le diagnostic firmware n'est pas inclus dans cette branche. Pour un build de
+mesure, fusionner `diag/heap-sampler` uniquement dans le répertoire temporaire
+d'assemblage, puis compiler ce répertoire avec `--workdir`. Ne pas intégrer cette
+branche de diagnostic aux commits des ressources statiques. Les tailles et
+mesures historiques ci-dessous incluent ce diagnostic.
+
+Ne flasher qu'après confirmation explicite. Fermer les autres onglets du routeur
+et éviter les autres clients HTTP. Dans le navigateur intégré, ouvrir une page du
+routeur local `http://192.168.0.55` ; une page inerte comme `/ajax_diag` évite le
+polling de l'accueil. Exécuter le contenu de `tools/measure-static-assets.js` dans
+sa console, d'abord sur le firmware actuel, puis après OTA autorisée.
+
+Le script découvre les six ressources statiques de l'accueil, exclut les deux
+petits endpoints dynamiques, et effectue quatre passes : six essais isolés puis
+un seul lot parallèle de six. Il consomme chaque réponse, lit `/ajax_diag` avant
+et après, calcule `avant.minSinceRead - après.minSinceRead`, et espace les essais
+d'une seconde. Une lecture de purge puis 500 ms de repos précèdent chaque essai.
+Il arrête sur erreur HTTP, timeout (15 s), diagnostic invalide ou tas libre avant
+essai inférieur à 8 Kio. Pas d'écriture ni de modification des réglages.
+Les résultats JSON restent dans `staticAssetMeasurements` et sont affichés en console.
+`staticAssetMeasurementPromise` permet d'attendre la fin depuis l'automatisation.
+`decodedBytes` est la taille après décompression navigateur ; `wireBytes` est le
+`Content-Length` reçu, donc la taille gzip transférée (ou `null` si absent).
+Comparer médianes et étendues des quatre passes, avec le bruit attendu de ±2 Ko.
+
+Pour isoler les effets, comparer les builds de cette branche
+`--no-minify --no-gzip`, `--no-gzip`, puis le build par défaut. Une comparaison au firmware
+antérieur inclut aussi l'effet de cette extraction et de deux requêtes supplémentaires
+au chargement complet. Tester aussi visuellement les couleurs, bi-sonde, paramètres,
+actions et OTA. Ne pas conclure sur le tas à partir du seul gain flash.
+
+Exemple de commandes (à n'exécuter qu'après autorisation OTA) :
+
+```bash
+BUILD_TAG=assets-test tools/build-binary.sh --workdir /chemin/du/worktree
+SR_FLASH_CONF=/Users/tsabran/dev/private/Solar-Router-F1ATB/flash.conf \
+  tools/flash.sh --ota /chemin/release-explicite
+```
+
+Le cookie reste dans `CADDY_ACTIVE_COOKIE`, utilisé par la configuration du
+reverse proxy ; ne jamais l'envoyer au routeur HTTP local ni l'afficher.
+Ne pas utiliser `--push-ref` ; refuser toute proposition de push.
+
+#### Mesures réelles du 14 octobre 2026
+
+OTA autorisées et effectuées avec `flash.sh --ota`, version finale relue :
+`17.30 (assets-gzip-20261014c 949f1493-dirty)`. Aucun push. Référence sur
+`measure-opt2`, puis quatre passes navigateur sur la version finale, depuis
+`/ajax_diag` sans polling de l'accueil, avec le protocole ci-dessus.
+
+| Ressource | Creux médian avant | Après minification + gzip |
+|-----------|-------------------:|--------------------------:|
+| CommunCSS | 4 678 o | 2 234 o |
+| ParaCommunJS | 3 890 o | 666 o |
+| MainJS1 | 7 254 o | 5 602 o |
+| MainJS2 | 9 732 o | 8 616 o |
+| MainJS3 | 8 292 o | 1 318 o |
+| CommunCouleurJS | 6 992 o | 56 o |
+| Les 6 en parallèle | 8 160 o | 1 086 o |
+
+Pour les six en parallèle : étendue avant **7 180–9 812 o**, après **32–3 156 o**,
+soit une baisse médiane observée de **7 074 o**. Les essais individuels sont
+beaucoup plus bruités que les ±2 Ko attendus : plusieurs différences sont
+négatives, car l'activité de fond varie entre les fenêtres avant/après.
+Ne pas interpréter ces nombres comme une consommation mémoire négative, ni
+garantir un gain précis par fichier. L'échantillonneur lit une fois par tick
+FreeRTOS et peut aussi manquer les creux très brefs des petits transferts gzip.
+Le minimum depuis le boot, remis à zéro par l'OTA, n'est pas comparable.
+Au dernier contrôle hors protocole : tas libre **42 388 o**, minimum depuis ce
+reboot **11 908 o**. D'autres activités continuent donc à produire des creux ;
+ce changement ne garantit pas à lui seul l'absence de pression mémoire.
+
+Ces essais comparent l'effet combiné minification + gzip + extraction des
+préfixes dynamiques, pas la minification isolée. Les six corps transférés
+passent de **57 941 à 11 949 o (−79,4 %)**, hors les deux petits endpoints
+dynamiques désormais séparés (236 o au total). La RAM statique reste identique.
+
+Contrôles HTTP réels : HTML `no-store`, six statiques `gzip` + `Vary` + cache
+immutable, dynamique non compressé et `no-store`, ancienne URL `no-store`,
+refus explicite de gzip → 406 avec un seul `Cache-Control: no-store`.
+Cache navigateur chaud vérifié sur MainJS1 : premier `transferSize=2310`,
+second `transferSize=0`, corps gzip de 2 010 o et décompressé de 5 997 o.
+Le cache peut donc éviter entièrement le transfert après le premier chargement.
+
+Validation du firmware mesuré : **113 tests C++, 15 JavaScript et 13 tests Python**, plus
+parsing de tous les JS préparés et relecture C++ des métadonnées gzip. Le seul
+avertissement C++ natif est celui préexistant sur le tableau de taille variable
+dans `Actions.cpp`.
+Après déplacement de la branche sur `enphase-envoy-fix` (`ec8e1c6`), sans diagnostic
+firmware, la suite passe à **114 tests C++, 15 JavaScript et 13 tests Python**.
+Le build `assets-gzip-nodiag-20261014` est validé à **1 732 800 o**
+(212 800 o libres dans la partition app), sans nouveau flash du routeur.
+
+#### Fusion de fichiers : intérêt conditionnel
+
+`assets.json` inclut aussi `bundle_estimates`, sans fusionner les fichiers servis.
+Mesures sur les ressources minifiées (séparateur `;\n` entre scripts) :
+
+| Regroupement | Requêtes évitées | Plus gros séparé | Fusionné | gzip séparés → fusionné |
+|--------------|----------------:|-----------------:|---------:|-----------------------:|
+| MainJS1 + MainJS2 + MainJS3 | 2 | 13 367 o | 30 515 o | 8 738 → 7 836 o |
+| Les 5 JS de l'accueil | 4 | 13 367 o | 37 529 o | 11 341 → 9 970 o |
+| ParaCommunJS + CommunCouleurJS | 1 | 3 654 o | 7 012 o | 2 603 → 2 470 o |
+| ActionsJS1…4 | 3 | 13 238 o | 39 078 o | 12 347 → 10 788 o |
+| ParaJS1 + ParaJS2 | 1 | 8 395 o | 14 886 o | 4 942 → 4 564 o |
+| BruteJS1 + BruteJS2 | 1 | 9 667 o | 15 276 o | 4 549 → 4 347 o |
+
+Sans gzip, fusionner ne réduit presque pas la flash ni les octets des corps :
+seuls les en-têtes HTTP et quelques métadonnées sont économisés. En cache chaud,
+les ressources versionnées ne génèrent déjà aucune requête réseau pendant leur
+fraîcheur. À froid, moins de requêtes peut réduire les connexions simultanées et
+leurs buffers ; une réponse plus longue peut au contraire remplir davantage les
+buffers TCP. Le core ESP32 3.3.7 transmet `write_P` à `write`, puis à `send` :
+il n'alloue pas un tampon de la taille totale du fichier à ce niveau.
+On ne peut donc pas déduire le creux de tas de la seule taille fusionnée.
+
+**Recommandation pour ce test : pas de fusion par défaut.** Comparer d'abord
+minification/cache seuls. Un bundle commun de 7 Ko est le candidat prudent à
+tester ensuite ; un bundle accueil unique de 37,5 Ko est à éviter sans mesure,
+sur un tas au repos de l'ordre de 35 Ko. Avec gzip, ce dernier tomberait à
+environ 10 Ko et deviendrait un candidat plus intéressant, toujours à mesurer.
+
+Les concaténations candidates passent le parseur JS, mais ceci ne prouve pas
+l'équivalence : fusionner peut changer le hoisting et la portée de déclarations.
+L'ordre actuel diffère selon les pages (`CommunCouleurJS` dans le `<head>` sur
+certaines, en fin de page sur l'accueil). Garder cet ordre, tester les effets au
+chargement et séparer les valeurs dynamiques serait indispensable avant activation.
+Ne jamais concaténer JS et CSS ni remettre les valeurs dynamiques dans un bundle
+immutable.
 
 FQBN : `esp32:esp32:esp32:PartitionScheme=custom`. Le script vérifie que le binaire tient
 dans la partition app de `partitions.csv` (1900K) et avertit au-delà de 95 %.

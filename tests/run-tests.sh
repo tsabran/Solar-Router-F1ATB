@@ -48,3 +48,11 @@ cd "$PROJECT_ROOT"
 while IFS= read -r test; do
     node "$test" "$@"
 done < <(find "$SCRIPT_DIR" -type f -name 'test_*.js' | sort)
+
+if [[ $# -eq 0 || "$1" == "StaticAssets" ]]; then
+    ASSET_PYTHON="${ASSET_PYTHON:-python3}"
+    if [[ "$ASSET_PYTHON" == python3 && -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+        ASSET_PYTHON="$PROJECT_ROOT/.venv/bin/python"
+    fi
+    "$ASSET_PYTHON" "$SCRIPT_DIR/assets/test_static_assets.py"
+fi

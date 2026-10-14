@@ -4,6 +4,7 @@
 const char *ExportHtml = R"====(
   <!doctype html>
   <html><head><meta charset="UTF-8">
+  <link rel="stylesheet" href="/runtime.css">
   <link rel="stylesheet" href="/commun.css">
   <style>
     .Zone{width:100%;border:1px solid grey;border-radius:10px;margin-top:10px;background-color:rgba(30,30,30,0.3);} 

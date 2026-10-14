@@ -25,6 +25,8 @@ Options:
                    contains the main .ino, else the directory of this script)
   --profile NAME   arduino-cli profile from sketch.yaml (default: default_profile, else esp32)
   --no-profile     Ignore sketch.yaml and use $FQBN with the globally installed core/libraries
+  --no-minify      Keep original resource bodies (URLs are still content-versioned)
+  --no-gzip        Keep resource bodies uncompressed (default: precompress at build time)
   -h, --help       Show this help
 
 Environment variables:
@@ -36,6 +38,7 @@ Environment variables:
   SR_OUTPUT_ROOT   Root for releases/ and .tmp-build/ (default: main worktree of the repo)
   ARCHIVE_DIR      Archive root (default: $SR_OUTPUT_ROOT/releases)
   SR_KEEP_TMP=1    Keep the staging directory in .tmp-build/
+  ASSET_PYTHON     Python with tools/requirements-assets.txt (default: tooling .venv, else python3)
   NO_COLOR / FORCE_COLOR
 USAGE
 }
@@ -44,11 +47,14 @@ WORK_DIR="${WORKDIR:-}"
 PROFILE="${SKETCH_PROFILE:-}"
 USE_PROFILE=1
 MAIN_INO=""
+ASSET_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --workdir) [[ -n "${2:-}" ]] || die "--workdir requires a path"; WORK_DIR="$2"; shift 2 ;;
     --profile) [[ -n "${2:-}" ]] || die "--profile requires a name"; PROFILE="$2"; shift 2 ;;
     --no-profile) USE_PROFILE=0; shift ;;
+    --no-minify) ASSET_ARGS+=(--no-minify); shift ;;
+    --no-gzip) ASSET_ARGS+=(--no-gzip); shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "Unknown option: $1 (see --help)" ;;
     *) MAIN_INO="$1"; shift ;;
@@ -219,6 +225,17 @@ log INFO "FQBN:        $FQBN"
 log INFO "Profile:     ${PROFILE:-(none)}"
 log INFO "Release dir: $RELEASE_DIR"
 
+# Older source branches without the cache helper remain buildable with this tooling.
+ASSET_REPORT="$TMP_ROOT/assets.json"
+if [[ -f "$STAGE_DIR/StaticAssetCache.h" ]]; then
+  if [[ -z "${ASSET_PYTHON:-}" ]]; then
+    ASSET_PYTHON=python3
+    [[ ! -x "$SKETCH_DIR/.venv/bin/python" ]] || ASSET_PYTHON="$SKETCH_DIR/.venv/bin/python"
+  fi
+  run_step "prepare embedded assets" "$ASSET_PYTHON" "$SCRIPT_DIR/prepare-assets.py" \
+    --stage "$STAGE_DIR" --report "$ASSET_REPORT" "${ASSET_ARGS[@]}"
+fi
+
 # ---------------------------------------------------------------------------
 # Compile
 # ---------------------------------------------------------------------------
@@ -269,6 +286,10 @@ fi
 mkdir -p "$RELEASE_DIR"
 
 ARTIFACTS=()
+if [[ -f "$ASSET_REPORT" ]]; then
+  cp "$ASSET_REPORT" "$RELEASE_DIR/assets.json"
+  ARTIFACTS+=(assets.json)
+fi
 # Bootloader, partition table and merged image are not archived: they only depend on the
 # platform and partitions.csv, and flashing the merged image would erase the configuration.
 cp "$BIN_FILE" "$RELEASE_DIR/$ARTIFACT.ino.bin"

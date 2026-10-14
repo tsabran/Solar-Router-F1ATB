@@ -418,6 +418,7 @@
 #include "PageHtmlJS_Couleurs.h"
 #include "PageHtmlJS_Export.h"
 #include "PageHtmlJS_Connect.h"
+#include "StaticAssetCache.h"
 
 //Watchdog de 180 secondes. Le systeme se Reset si pas de dialoque avec le LINKY ou JSY-MK-194T/333 ou Enphase-Envoy pendant 180s
 //Watchdog for 180 seconds. The system resets if no dialogue with the Linky or  JSY-MK-194T/333 or Enphase-Envoy for 180s
