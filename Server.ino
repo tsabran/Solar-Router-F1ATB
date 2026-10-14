@@ -34,7 +34,9 @@ void Init_Server() {
   server.on("/ajax_histo1an", handleAjaxHisto1an);
   server.on("/ajax_dataRMS", handleAjaxRMS);
   server.on("/ajax_dataESP32", handleAjaxESP32);
+#ifdef DIAG_HEAP
   server.on("/ajax_diag", handleAjaxDiag);
+#endif
   server.on("/ajax_data", handleAjaxData);
   server.on("/ajax_data10mn", handleAjaxData10mn);
   server.on("/ajax_etatActions", handleAjax_etatActions);
@@ -409,6 +411,7 @@ void handleAjaxHisto48h() {  // Envoi Historique de 50h (600points) toutes les 5
   HttpLog("histo48h fin " + String(millis()-_t0) + "ms heap=" + String(esp_get_free_internal_heap_size()));
   server.sendContent("");  // terminateur chunked 0\r\n\r\n
 }
+#ifdef DIAG_HEAP  // build de mesure uniquement : /ajax_diag n'est pas authentifié
 // Échantillonneur du tas : minimum par fenêtre d'une minute (60 dernières minutes) et depuis la dernière lecture
 #define DIAG_WINDOWS 60
 static volatile uint32_t diagMinRing[DIAG_WINDOWS];
@@ -461,6 +464,7 @@ void handleAjaxDiag() {  // Diagnostic mémoire (octets). minWin = minima par mi
   S += "\n";
   server.send(200, "text/plain", S);
 }
+#endif
 void handleAjaxESP32() {  // Envoi des dernières infos sur l'ESP32
   [[maybe_unused]] unsigned long _t0 = millis();
   IT10ms = 0;
