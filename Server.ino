@@ -315,6 +315,10 @@ void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
       } else {
         S += RS + "NA" + RS + "NA" + RS + "NA";
       }
+      S += RS + String(CompteursPotentiels.importWh, 3);
+      S += RS + String(CompteursPotentiels.exportWh, 3);
+      S += RS + String(CompteursPotentiels.gridW, 0);
+      S += RS + String(EtatEnergie) + (CompteursPotentiels.fresh(millis()) ? "" : " (mesure non fraîche)");
       
 
     }

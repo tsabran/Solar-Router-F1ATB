@@ -129,7 +129,8 @@ TEST_CASE(MetricsMQTT, StatePrecisionTypesAndAvailability) {
     ASSERT_EQ(0, payload["PotentialExportW"].as<double>());
     set_simulated_millis(3100);
     payload = state();
-    ASSERT_FALSE(payload["Available"].as<bool>());
+    ASSERT_TRUE(payload["Available"].as<bool>());
+    ASSERT_FALSE(payload["Eligible"].as<bool>());
     ASSERT_EQ(0, payload["GridW"].as<double>());
     ASSERT_NEAR(12.345679, payload["PotentialExportWh"].as<double>(), 5e-7);
 }

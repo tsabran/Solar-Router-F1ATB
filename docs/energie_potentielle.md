@@ -228,7 +228,9 @@ en depasser le buffer. Les cumuls sont `PotentialImportWh` et
 `device_class: energy`, unite Wh, `state_class: total_increasing`, precision
 d'affichage 0.001 Wh. Calcul en `double`, publication a six decimales de Wh.
 
-Disponibilite : combinaison du LWT du RMS, de `Available` dans le payload et
+Disponibilite : combinaison du LWT du RMS, de `Available` dans le payload
+(configuration et source valides, independamment de la fraicheur de la mesure :
+un cumul reste affiche et se fige simplement pendant une perte de mesure) et
 expiration apres `2 * MQTTRepet + 10` secondes. `Status` explique notamment
 `missing_nominal_or_unsupported_output`, `multiple_groups`,
 `invalid_or_stale_measurement`, `forced` ou `not_available_or_scheduled_on`.

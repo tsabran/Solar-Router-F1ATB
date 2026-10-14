@@ -64,7 +64,12 @@ const E = [
   ["EnvoyCompteErreurTimeout", "# erreurs timeout pendant réception réponse Envoy", "", "Enph"],
   ["EnvoyRatioErreurConnectionClosed", "Ratio erreurs connexion closed pendant réception réponse Envoy", "%", "Enph"],
   ["EnvoyRatioErreurTimeout", "Ratio erreurs timeout pendant réception réponse Envoy", "%", "Enph"],
-  ["EnvoyRatioReconnexion", "Ratio reconnexions TLS Envoy / total requêtes", "%", "Enph"]
+  ["EnvoyRatioReconnexion", "Ratio reconnexions TLS Envoy / total requêtes", "%", "Enph"],
+
+  ["PotentielSoutirageWh", "Soutirage potentiellement évitable (cumul)", "Wh", "Enph"],
+  ["PotentielInjectionWh", "Injection potentiellement captable (cumul)", "Wh", "Enph"],
+  ["PotentielPuissanceReseauW", "Puissance réseau mesurée (suivi énergie potentielle)", "W", "Enph"],
+  ["PotentielEtat", "État du suivi énergie potentielle", "", "Enph"]
 
 ];
 

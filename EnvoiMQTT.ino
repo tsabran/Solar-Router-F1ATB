@@ -499,7 +499,7 @@ void PublierEnergiePotentielle() {
   JsonDocument state;
   state["PotentialImportWh"] = serialized(String(CompteursPotentiels.importWh, 6));
   state["PotentialExportWh"] = serialized(String(CompteursPotentiels.exportWh, 6));
-  state["Available"] = ConfigurationEnergieValide && Source == "Enphase" && fresh;
+  state["Available"] = ConfigurationEnergieValide && Source == "Enphase";
   state["Status"] = EtatEnergie;
   state["Eligible"] = CommandeEnergieValide && fresh && Source == "Enphase";
   state["GridW"] = CompteursPotentiels.gridW;
