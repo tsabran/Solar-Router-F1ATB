@@ -8,6 +8,10 @@ float deltaWS = 0;
 float deltaWI = 0;
 int boucle_appel_Linky = 0;
 void Setup_Linky() {
+  if (DataRawLinky == nullptr) {
+    DataRawLinky = (volatile char *)malloc(LINKY_RAW_SIZE);
+    if (DataRawLinky == nullptr) StockMessage("Linky : allocation buffer brut impossible");
+  }
   delay(20);
   Serial2V = 9600;  //On force la vitesse
   MySerial.setRxBufferSize(SER_BUF_SIZE);
@@ -17,6 +21,7 @@ void Setup_Linky() {
 
 int pIRMS1, pIRMS2, pIRMS3 = -1, pURMS1, pURMS2, pURMS3, pSINSTS = 0, pSINSTS1 = 0, pSINSTS2, pSINSTS3, pPuissance;
 void LectureLinky() {  //Lecture port série du LINKY .
+  if (DataRawLinky == nullptr) return;
   int V = 0;
   long OldWh = 0;
   float deltaWh = 0;
@@ -35,7 +40,7 @@ void LectureLinky() {  //Lecture port série du LINKY .
     boucle_appel_Linky = 0;
     V = MySerial.read();
     DataRawLinky[IdxDataRawLinky] = char(V);
-    IdxDataRawLinky = (IdxDataRawLinky + 1) % 4000;
+    IdxDataRawLinky = (IdxDataRawLinky + 1) % LINKY_RAW_SIZE;
     switch (V) {
       case 2:  //STX (Start Text)
         break;
@@ -71,7 +76,7 @@ void LectureLinky() {  //Lecture port série du LINKY .
                 checksum += (int)DataRawLinky[IdxBufDecodLinky];
               }
             }
-            IdxBufDecodLinky = (IdxBufDecodLinky + 1) % 4000;
+            IdxBufDecodLinky = (IdxBufDecodLinky + 1) % LINKY_RAW_SIZE;
             if (checkLinky == -1 && nb_tab == 2) {
               checkLinky = (int)DataRawLinky[IdxBufDecodLinky];
               checksum += 18;            //2 tabulations

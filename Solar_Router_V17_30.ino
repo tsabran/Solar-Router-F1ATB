@@ -655,7 +655,8 @@ bool EASTvalid = false;
 bool EAITvalid = false;
 volatile int IdxDataRawLinky = 0;
 volatile int IdxBufDecodLinky = 0;
-volatile char DataRawLinky[4000];  //Buffer entrée données Linky
+#define LINKY_RAW_SIZE 4000
+volatile char *DataRawLinky = nullptr;  //Buffer entrée données Linky, alloué dans Setup_Linky()
 float moyPWS = 0;
 float moyPWI = 0;
 float moyPVAS = 0;

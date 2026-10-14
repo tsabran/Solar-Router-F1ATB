@@ -265,9 +265,12 @@ void handleAjaxRMS() {  // Envoi des dernières données  brutes reçues du RMS
     }
     if (Source_data == "Linky") {
       S += GS;
-      while (LastIdx != IdxDataRawLinky) {
-        S += String(DataRawLinky[LastIdx]);
-        LastIdx = (1 + LastIdx) % 4000;
+      if (DataRawLinky != nullptr) {
+        if (LastIdx < 0 || LastIdx >= LINKY_RAW_SIZE) LastIdx = IdxDataRawLinky;
+        while (LastIdx != IdxDataRawLinky) {
+          S += String(DataRawLinky[LastIdx]);
+          LastIdx = (1 + LastIdx) % LINKY_RAW_SIZE;
+        }
       }
       S += GS + String(IdxDataRawLinky);
     }
